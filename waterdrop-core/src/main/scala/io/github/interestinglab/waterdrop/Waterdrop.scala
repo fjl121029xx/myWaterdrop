@@ -13,7 +13,7 @@ import org.apache.spark.SparkConf
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.encoders.RowEncoder
 import org.apache.spark.sql.types.{StringType, StructField, StructType}
-import org.apache.spark.sql.{Dataset, Row, SparkSession}
+import org.apache.spark.sql.{Row, SparkSession}
 import org.apache.spark.streaming._
 
 import scala.collection.JavaConversions._
@@ -204,34 +204,6 @@ object Waterdrop extends Logging {
 
     basePrepare(sparkSession, staticInputs, streamingInputs, filters, outputs)
 
-    // let static input register as table for later use if needed
-    var datasetMap = Map[String, Dataset[Row]]()
-    for (input <- staticInputs) {
-
-      val ds = input.getDataset(sparkSession)
-
-      val config = input.getConfig()
-      config.hasPath("table_name") match {
-        case true => {
-          val tableName = config.getString("table_name")
-
-          datasetMap.contains(tableName) match {
-            case true =>
-              throw new ConfigRuntimeException(
-                "Detected duplicated Dataset["
-                  + tableName + "], it seems that you configured table_name = \"" + tableName + "\" in multiple static inputs")
-            case _ => datasetMap += (tableName -> ds)
-          }
-
-          ds.createOrReplaceTempView(tableName)
-        }
-        case false => {
-          throw new ConfigRuntimeException(
-            "Plugin[" + input.name + "] must be registered as dataset/table, please set \"table_name\" config")
-        }
-      }
-    }
-
     // when you see this ASCII logo, waterdrop is really started.
     showWaterdropAsciiLogo()
 
@@ -309,51 +281,26 @@ object Waterdrop extends Logging {
 
     basePrepare(sparkSession, staticInputs, filters, outputs)
 
-
-    // let static input register as table for later use if needed
-    var datasetMap = Map[String, Dataset[Row]]()
-    for (input <- staticInputs) {
-
-      val ds = input.getDataset(sparkSession)
-
-      val config = input.getConfig()
-      config.hasPath("table_name") match {
-        case true => {
-          val tableName = config.getString("table_name")
-
-          datasetMap.contains(tableName) match {
-            case true =>
-              throw new ConfigRuntimeException(
-                "Detected duplicated Dataset["
-                  + tableName + "], it seems that you configured table_name = \"" + tableName + "\" in multiple static inputs")
-            case _ => datasetMap += (tableName -> ds)
-          }
-
-          ds.createOrReplaceTempView(tableName)
-        }
-        case false => {
-          throw new ConfigRuntimeException(
-            "Plugin[" + input.name + "] must be registered as dataset/table, please set \"table_name\" config")
-        }
-      }
-    }
-
     // when you see this ASCII logo, waterdrop is really started.
     showWaterdropAsciiLogo()
 
     if (staticInputs.nonEmpty) {
-      var ds = staticInputs.head.getDataset(sparkSession)
-      if (ds.columns.length > 0) {
-        for (f <- filters) {
+      for (input <- staticInputs){
+        var ds = input.getDataset(sparkSession)
+        if (ds.columns.length > 0) {
+          for (f <- filters) {
           ds = f.process(sparkSession, ds)
+          }
+          outputs.foreach(p => {
+            p.process(ds)
+            println("[INFO] out put sum: " + ds.count)
+          })
         }
-        outputs.foreach(p => {
-          p.process(ds)
-        })
       }
     } else {
       throw new ConfigRuntimeException("Input must be configured at least once.")
     }
+
   }
 
   private def basePrepare(
