@@ -52,7 +52,7 @@ dependencyOverrides += "org.apache.kafka" % "kafka-clients" % "1.1.0"
 
 resolvers += Resolver.mavenLocal
 
-javacOptions ++= Seq("-source", "1.7", "-target", "1.7")
+javacOptions ++= Seq("-source", "1.8", "-target", "1.8")
 
 scalacOptions ++= Seq("-unchecked", "-deprecation", "-feature")
 
