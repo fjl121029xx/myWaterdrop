@@ -11,4 +11,9 @@ abstract class BaseStaticInput extends Plugin {
    * Get Dataset from this Static Input.
    * */
   def getDataset(spark: SparkSession): Dataset[Row]
+
+  /**
+   * job done dosomething
+   * */
+  def afterBatch:Unit={}
 }
