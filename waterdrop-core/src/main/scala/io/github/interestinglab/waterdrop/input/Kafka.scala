@@ -24,6 +24,7 @@ class Kafka extends BaseStaticInput {
   var config: Config = ConfigFactory.empty()
 
   var kafkaSource: Option[Broadcast[KafkaSource]] = None
+  var offsetRanges: Option[Array[OffsetRange]] = None
 
   val consumerPrefix = "consumer"
   val mysqlPrefix = "mysql"
@@ -91,29 +92,24 @@ class Kafka extends BaseStaticInput {
     kafkaSource = Some(sparkSession.sparkContext.broadcast(KafkaSource(props)))
 
     //get offsets range
-    val offsetRanges = topics.flatMap(topic => {
+    offsetRanges = Some(topics.flatMap(topic => {
       val list = new ListBuffer[OffsetRange]
       val tps = kafkaSource.get.value.getTopicPartition(topic)
       val beginOffset = getBeginningOffsets(topics)
       val endOffsets = kafkaSource.get.value.getEndOffset(tps)
 
-      //save end offset
-      config.hasPath(mysqlPrefix) match {
-        case true => saveOffset(topic, endOffsets)
-        case false => //do nothing
-      }
 
       tps.foreach(tp => {
         list.append(OffsetRange(tp, beginOffset.get(tp), endOffsets.get(tp)))
       })
       list.toList
-    }).toArray
+    }).toArray)
 
     //print offset info and sum
-    showOffsetInfo(offsetRanges)
+    showOffsetInfo(offsetRanges.get)
 
     //start offset end offset(latest offset)
-    val rdd = KafkaUtils.createRDD[String, String](sparkSession.sparkContext, kafkaParams, offsetRanges, PreferConsistent).map(cr => {
+    val rdd = KafkaUtils.createRDD[String, String](sparkSession.sparkContext, kafkaParams, offsetRanges.get, PreferConsistent).map(cr => {
       //string to Row
       RowFactory.create(cr.value)
     })
@@ -125,7 +121,16 @@ class Kafka extends BaseStaticInput {
     sparkSession.createDataset(rdd)(RowEncoder(schema))
   }
 
-  def saveOffset(topic: String, topicOffsets: util.Map[TopicPartition, lang.Long]): Unit = {
+  override def afterBatch: Unit = {
+
+    //save offset
+    config.hasPath(mysqlPrefix) match {
+      case true => saveOffset(offsetRanges.get)
+      case false => //do nothing
+    }
+  }
+
+  def saveOffset(offsetRanges:Array[OffsetRange]): Unit = {
     val mysqlConf = config.getConfig(mysqlPrefix)
     var conn: Connection = null
 
@@ -137,13 +142,13 @@ class Kafka extends BaseStaticInput {
       statement.close()
     }
 
-    val updateSql = s"UPDATE tbl_wd_kafka_offset SET current = 0 WHERE topic = '$topic' AND current = 1"
+    val updateSql = "UPDATE tbl_wd_kafka_offset SET current = 0 WHERE topic in (\"" + config.getString("topics").replace(",","\",\"") + "\") AND current = 1"
 
-    val insertSql = "INSERT INTO tbl_wd_kafka_offset (topic,partitionNum,current,offset) VALUES "
+    val insertSql = "INSERT INTO tbl_wd_kafka_offset (topic,partitionNum,current,fromOffset,untilOffset) VALUES "
 
     val sb = new StringBuilder
-    topicOffsets.foreach(to => {
-      sb.append("(\"" + to._1.topic() + "\"," + to._1.partition + ",1," + to._2 + "),")
+    offsetRanges.foreach(or => {
+      sb.append("(\"" + or.topic + "\"," + or.partition + ",1," + or.fromOffset + "," + or.untilOffset + "),")
     })
 
     val sql = insertSql + sb.toString.substring(0, sb.length - 1)
@@ -178,9 +183,9 @@ class Kafka extends BaseStaticInput {
           conn.close()
           statement.close()
         }
-
-        val sql = s"SELECT topic,partitionNum,offset FROM tbl_wd_kafka_offset where topic in (${getTopicsString(topics)}) AND current = 1"
-
+        // scalastyle:off
+        val sql = "SELECT topic,partitionNum,untilOffset FROM tbl_wd_kafka_offset where topic in (\"" + config.getString("topics").replace(",","\",\"") + "\") AND current = 1"
+        // scalastyle:on
         println(sql)
 
         Try(statement.executeQuery(sql)) match {
@@ -190,7 +195,7 @@ class Kafka extends BaseStaticInput {
 
             val map = new util.HashMap[TopicPartition, lang.Long]()
             while (rss.next) {
-              map.put(new TopicPartition(rss.getString("topic"), rss.getInt("partitionNum")), rss.getLong("offset"))
+              map.put(new TopicPartition(rss.getString("topic"), rss.getInt("partitionNum")), rss.getLong("untilOffset"))
             }
             map.entrySet().foreach(entry => {
               tps = tps.-(entry.getKey)
@@ -209,17 +214,6 @@ class Kafka extends BaseStaticInput {
         getKafkaSourceOffset(topicPartitions)
       }
     }
-  }
-
-  def getTopicsString(topics: Set[String]): String = {
-
-    val sb = new StringBuilder
-
-    topics.foreach(tp => {
-      sb.append("\"" + tp + "\"" + ",")
-    })
-
-    sb.toString.substring(0, sb.length - 1)
   }
 
   def showOffsetInfo(offsetRanges: Array[OffsetRange]): Unit = {
