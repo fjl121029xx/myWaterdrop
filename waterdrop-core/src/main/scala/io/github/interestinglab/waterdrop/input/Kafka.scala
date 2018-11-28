@@ -1,6 +1,7 @@
 package io.github.interestinglab.waterdrop.input
 
 import java.sql.{Connection, DriverManager}
+import java.util.Map.Entry
 import java.{lang, util}
 import java.util.Properties
 
@@ -52,20 +53,30 @@ class Kafka extends BaseStaticInput {
     }
   }
 
+  override def prepare(spark: SparkSession): Unit = {
+    super.prepare(spark)
+
+    val defaultConfig = ConfigFactory.parseMap(
+      Map(
+        "consumer.auto.offset.reset" -> "earliest", //默认auto.offset.reset=earliest
+        "consumer.key.deserializer" ->"org.apache.kafka.common.serialization.StringDeserializer",
+        "consumer.value.deserializer" ->"org.apache.kafka.common.serialization.StringDeserializer"
+      )
+    )
+    config = config.withFallback(defaultConfig)
+  }
+
 
   override def getDataset(sparkSession: SparkSession): Dataset[Row] = {
 
 
     val consumerConfig = config.getConfig(consumerPrefix)
 
-    consumerConfig.entrySet()
-
     val kafkaParams = mapAsJavaMap[String, Object](consumerConfig
       .entrySet()
       .foldRight(Map[String, String]())((entry, map) => {
         map + (entry.getKey -> entry.getValue.unwrapped().toString)
       }))
-
 
     println("[INFO] Input Kafka Params:")
 
@@ -89,13 +100,12 @@ class Kafka extends BaseStaticInput {
 
     kafkaSource = Some(sparkSession.sparkContext.broadcast(KafkaSource(props)))
 
+    val beginOffset = getBeginningOffsets(topics)
     //get offsets range
     offsetRanges = Some(topics.flatMap(topic => {
       val list = new ListBuffer[OffsetRange]
       val tps = kafkaSource.get.value.getTopicPartition(topic)
-      val beginOffset = getBeginningOffsets(topics)
       val endOffsets = kafkaSource.get.value.getEndOffset(tps)
-
 
       tps.foreach(tp => {
         list.append(OffsetRange(tp, beginOffset.get(tp), endOffsets.get(tp)))
