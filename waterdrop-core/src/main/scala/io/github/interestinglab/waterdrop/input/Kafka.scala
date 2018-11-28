@@ -41,13 +41,11 @@ class Kafka extends BaseStaticInput {
     config.hasPath("topics") match {
       case true => {
         val consumerConfig = config.getConfig(consumerPrefix)
-        consumerConfig.hasPath("zookeeper.connect") &&
-          !consumerConfig.getString("zookeeper.connect").trim.isEmpty &&
-          consumerConfig.hasPath("group.id") &&
-          !consumerConfig.getString("group.id").trim.isEmpty match {
+        consumerConfig.hasPath("bootstrap.servers") &&
+          !consumerConfig.getString("bootstrap.servers").trim.isEmpty  match {
           case true => (true, "")
           case false =>
-            (false, "please specify [consumer.zookeeper.connect] and [consumer.group.id] as non-empty string")
+            (false, "please specify [consumer.bootstrap.servers] as non-empty string")
         }
       }
       case false => (false, "please specify [topics] as non-empty string, multiple topics separated by \",\"")
