@@ -33,7 +33,7 @@ class Kafka extends BaseStaticInput {
   }
 
   override def getConfig(): Config = {
-    return this.config
+    this.config
   }
 
   override def checkConfig(): (Boolean, String) = {
@@ -231,44 +231,44 @@ class Kafka extends BaseStaticInput {
     })
     println("[INFO] Kafka Range Sum :" + sum)
   }
-}
 
+  class KafkaSource(createConsumer: () => KafkaConsumer[String, String]) extends Serializable {
 
-class KafkaSource(createConsumer: () => KafkaConsumer[String, String]) extends Serializable {
+    lazy val consumer = createConsumer()
 
-  lazy val consumer = createConsumer()
-
-  def getTopicPartition(topic: String): List[TopicPartition] = {
-    var list = new ListBuffer[TopicPartition]
-    consumer.partitionsFor(topic).foreach(partitionInfo => {
-      list.append(new TopicPartition(topic, partitionInfo.partition()))
-    })
-    list.toList
-  }
-
-  def getBeginningOffset(topicPartitions: List[TopicPartition]): util.Map[TopicPartition, lang.Long] = {
-    consumer.beginningOffsets(topicPartitions)
-
-  }
-
-  def getEndOffset(topicPartitions: List[TopicPartition]): util.Map[TopicPartition, lang.Long] = {
-    consumer.endOffsets(topicPartitions)
-
-  }
-}
-
-object KafkaSource {
-  def apply(config: Properties): KafkaSource = {
-    val f = () => {
-      val consumer = new KafkaConsumer[String, String](config)
-
-      sys.addShutdownHook {
-        consumer.close()
-      }
-
-      consumer
+    def getTopicPartition(topic: String): List[TopicPartition] = {
+      var list = new ListBuffer[TopicPartition]
+      consumer.partitionsFor(topic).foreach(partitionInfo => {
+        list.append(new TopicPartition(topic, partitionInfo.partition()))
+      })
+      list.toList
     }
-    new KafkaSource(f)
+
+    def getBeginningOffset(topicPartitions: List[TopicPartition]): util.Map[TopicPartition, lang.Long] = {
+      consumer.beginningOffsets(topicPartitions)
+
+    }
+
+    def getEndOffset(topicPartitions: List[TopicPartition]): util.Map[TopicPartition, lang.Long] = {
+      consumer.endOffsets(topicPartitions)
+
+    }
+  }
+
+  object KafkaSource {
+    def apply(config: Properties): KafkaSource = {
+      val f = () => {
+        val consumer = new KafkaConsumer[String, String](config)
+
+        sys.addShutdownHook {
+          consumer.close()
+        }
+
+        consumer
+      }
+      new KafkaSource(f)
+    }
+
   }
 
 }
