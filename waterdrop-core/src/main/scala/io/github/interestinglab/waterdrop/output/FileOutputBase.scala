@@ -74,7 +74,7 @@ abstract class FileOutputBase extends BaseOutput {
       Map(
         "partition_by" -> util.Arrays.asList(),
         "save_mode" -> "error", // allowed values: overwrite, append, ignore, error
-        "serializer" -> "json", // allowed values: csv, json, parquet, text
+        "serializer" -> "text", // allowed values: csv, json, parquet, text, orc
         "path_time_format" -> "yyyyMMddHHmmss" // if variable 'now' is used in path, this option specifies its time_format
       )
     )
@@ -109,12 +109,31 @@ abstract class FileOutputBase extends BaseOutput {
     }
 
     var path = buildPathWithDefaultSchema(config.getString("path"), defaultUriSchema)
-    path = StringTemplate.substitute(path, config.getString("path_time_format"))
-    config.getString("serializer") match {
-      case "csv" => writer.csv(path)
-      case "json" => writer.json(path)
-      case "parquet" => writer.parquet(path)
-      case "text" => writer.text(path)
+
+    // scalastyle:off
+    //add hour offset
+    Try(config.getInt("hour_offset")) match {
+      case Success(hour_offset) => path = StringTemplate.substitute(path, config.getString("path_time_format"), hour_offset)
+      case Failure(exception) => path = StringTemplate.substitute(path, config.getString("path_time_format"))
     }
+
+    //add compression
+    Try(config.getString("compression")) match {
+      case Success(compression) => {
+        writer.format(config.getString("serializer"))
+          .option("compression", compression)
+          .save(path)
+
+      }
+      case Failure(exception) => {
+        config.getString("serializer") match {
+          case "csv" => writer.csv(path)
+          case "json" => writer.json(path)
+          case "parquet" => writer.parquet(path)
+          case "text" => writer.text(path)
+        }
+      }
+    }
+    // scalastyle:on
   }
 }

@@ -296,6 +296,7 @@ object Waterdrop extends Logging {
             println("[INFO] out put sum: " + ds.count)
           })
         }
+        input.afterBatch
       }
     } else {
       throw new ConfigRuntimeException("Input must be configured at least once.")
