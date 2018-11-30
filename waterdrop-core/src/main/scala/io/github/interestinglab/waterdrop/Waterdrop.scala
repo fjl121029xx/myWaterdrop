@@ -171,6 +171,8 @@ object Waterdrop extends Logging {
       println("\t" + key + " => " + value)
     })
 
+    sparkConf.setMaster("local")
+
     val sparkSession = SparkSession.builder.config(sparkConf).getOrCreate()
 
     // find all user defined UDFs and register in application init
@@ -285,11 +287,11 @@ object Waterdrop extends Logging {
     showWaterdropAsciiLogo()
 
     if (staticInputs.nonEmpty) {
-      for (input <- staticInputs){
+      for (input <- staticInputs) {
         var ds = input.getDataset(sparkSession)
         if (ds.columns.length > 0) {
           for (f <- filters) {
-          ds = f.process(sparkSession, ds)
+            ds = f.process(sparkSession, ds)
           }
           outputs.foreach(p => {
             p.process(ds)

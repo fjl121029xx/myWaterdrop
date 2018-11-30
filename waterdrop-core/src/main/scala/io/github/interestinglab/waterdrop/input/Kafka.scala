@@ -43,7 +43,7 @@ class Kafka extends BaseStaticInput {
       case true => {
         val consumerConfig = config.getConfig(consumerPrefix)
         consumerConfig.hasPath("bootstrap.servers") &&
-          !consumerConfig.getString("bootstrap.servers").trim.isEmpty  match {
+          !consumerConfig.getString("bootstrap.servers").trim.isEmpty match {
           case true => (true, "")
           case false =>
             (false, "please specify [consumer.bootstrap.servers] as non-empty string")
@@ -59,24 +59,23 @@ class Kafka extends BaseStaticInput {
     val defaultConfig = ConfigFactory.parseMap(
       Map(
         "consumer.auto.offset.reset" -> "earliest", //默认auto.offset.reset=earliest
-        "consumer.key.deserializer" ->"org.apache.kafka.common.serialization.StringDeserializer",
-        "consumer.value.deserializer" ->"org.apache.kafka.common.serialization.StringDeserializer"
+        "consumer.key.deserializer" -> "org.apache.kafka.common.serialization.StringDeserializer",
+        "consumer.value.deserializer" -> "org.apache.kafka.common.serialization.StringDeserializer"
       )
     )
     config = config.withFallback(defaultConfig)
   }
 
-
   override def getDataset(sparkSession: SparkSession): Dataset[Row] = {
-
 
     val consumerConfig = config.getConfig(consumerPrefix)
 
-    val kafkaParams = mapAsJavaMap[String, Object](consumerConfig
-      .entrySet()
-      .foldRight(Map[String, String]())((entry, map) => {
-        map + (entry.getKey -> entry.getValue.unwrapped().toString)
-      }))
+    val kafkaParams = mapAsJavaMap[String, Object](
+      consumerConfig
+        .entrySet()
+        .foldRight(Map[String, String]())((entry, map) => {
+          map + (entry.getKey -> entry.getValue.unwrapped().toString)
+        }))
 
     println("[INFO] Input Kafka Params:")
 
@@ -102,25 +101,30 @@ class Kafka extends BaseStaticInput {
 
     val beginOffset = getBeginningOffsets(topics)
     //get offsets range
-    offsetRanges = Some(topics.flatMap(topic => {
-      val list = new ListBuffer[OffsetRange]
-      val tps = kafkaSource.get.value.getTopicPartition(topic)
-      val endOffsets = kafkaSource.get.value.getEndOffset(tps)
+    offsetRanges = Some(
+      topics
+        .flatMap(topic => {
+          val list = new ListBuffer[OffsetRange]
+          val tps = kafkaSource.get.value.getTopicPartition(topic)
+          val endOffsets = kafkaSource.get.value.getEndOffset(tps)
 
-      tps.foreach(tp => {
-        list.append(OffsetRange(tp, beginOffset.get(tp), endOffsets.get(tp)))
-      })
-      list.toList
-    }).toArray)
+          tps.foreach(tp => {
+            list.append(OffsetRange(tp, beginOffset.get(tp), endOffsets.get(tp)))
+          })
+          list.toList
+        })
+        .toArray)
 
     //print offset info and sum
     showOffsetInfo(offsetRanges.get)
 
     //start offset end offset(latest offset)
-    val rdd = KafkaUtils.createRDD[String, String](sparkSession.sparkContext, kafkaParams, offsetRanges.get, PreferConsistent).map(cr => {
-      //string to Row
-      RowFactory.create(cr.value)
-    })
+    val rdd = KafkaUtils
+      .createRDD[String, String](sparkSession.sparkContext, kafkaParams, offsetRanges.get, PreferConsistent)
+      .map(cr => {
+        //string to Row
+        RowFactory.create(cr.value)
+      })
 
     val schema = new StructType()
       .add("raw_message", DataTypes.StringType)
@@ -138,11 +142,14 @@ class Kafka extends BaseStaticInput {
     }
   }
 
-  def saveOffset(offsetRanges:Array[OffsetRange]): Unit = {
+  def saveOffset(offsetRanges: Array[OffsetRange]): Unit = {
     val mysqlConf = config.getConfig(mysqlPrefix)
     var conn: Connection = null
 
-    conn = DriverManager.getConnection(mysqlConf.getString("jdbc"), mysqlConf.getString("username"), mysqlConf.getString("password"))
+    conn = DriverManager.getConnection(
+      mysqlConf.getString("jdbc"),
+      mysqlConf.getString("username"),
+      mysqlConf.getString("password"))
     val statement = conn.createStatement
 
     sys.addShutdownHook {
@@ -150,7 +157,9 @@ class Kafka extends BaseStaticInput {
       statement.close()
     }
 
-    val updateSql = "UPDATE tbl_wd_kafka_offset SET current = 0 WHERE topic in (\"" + config.getString("topics").replace(",","\",\"") + "\") AND current = 1"
+    val updateSql = "UPDATE tbl_wd_kafka_offset SET current = 0 WHERE topic in (\"" + config
+      .getString("topics")
+      .replace(",", "\",\"") + "\") AND current = 1"
 
     val insertSql = "INSERT INTO tbl_wd_kafka_offset (topic,partitionNum,current,fromOffset,untilOffset) VALUES "
 
@@ -168,14 +177,15 @@ class Kafka extends BaseStaticInput {
     statement.execute(sql)
   }
 
-  def getTopicPartitions(topics: Set[String]): List[TopicPartition] = topics.flatMap(kafkaSource.get.value.getTopicPartition(_)).toList
-
+  def getTopicPartitions(topics: Set[String]): List[TopicPartition] =
+    topics.flatMap(kafkaSource.get.value.getTopicPartition(_)).toList
 
   def getBeginningOffsets(topics: Set[String]): util.Map[TopicPartition, lang.Long] = {
 
     val topicPartitions = getTopicPartitions(topics)
 
-    def getKafkaSourceOffset(topicPartitions: List[TopicPartition]) = kafkaSource.get.value.getBeginningOffset(topicPartitions)
+    def getKafkaSourceOffset(topicPartitions: List[TopicPartition]) =
+      kafkaSource.get.value.getBeginningOffset(topicPartitions)
 
     //判断是否包含mysql配置
     config.hasPath(mysqlPrefix) match {
@@ -184,7 +194,10 @@ class Kafka extends BaseStaticInput {
         val mysqlConf = config.getConfig(mysqlPrefix)
         var conn: Connection = null
 
-        conn = DriverManager.getConnection(mysqlConf.getString("jdbc"), mysqlConf.getString("username"), mysqlConf.getString("password"))
+        conn = DriverManager.getConnection(
+          mysqlConf.getString("jdbc"),
+          mysqlConf.getString("username"),
+          mysqlConf.getString("password"))
         val statement = conn.createStatement
 
         sys.addShutdownHook {
@@ -192,7 +205,9 @@ class Kafka extends BaseStaticInput {
           statement.close()
         }
         // scalastyle:off
-        val sql = "SELECT topic,partitionNum,untilOffset FROM tbl_wd_kafka_offset where topic in (\"" + config.getString("topics").replace(",","\",\"") + "\") AND current = 1"
+        val sql = "SELECT topic,partitionNum,untilOffset FROM tbl_wd_kafka_offset where topic in (\"" + config
+          .getString("topics")
+          .replace(",", "\",\"") + "\") AND current = 1"
         // scalastyle:on
         println(sql)
 
@@ -203,17 +218,20 @@ class Kafka extends BaseStaticInput {
 
             val map = new util.HashMap[TopicPartition, lang.Long]()
             while (rss.next) {
-              map.put(new TopicPartition(rss.getString("topic"), rss.getInt("partitionNum")), rss.getLong("untilOffset"))
+              map.put(
+                new TopicPartition(rss.getString("topic"), rss.getInt("partitionNum")),
+                rss.getLong("untilOffset"))
             }
-            map.entrySet().foreach(entry => {
-              tps = tps.-(entry.getKey)
-            })
+            map
+              .entrySet()
+              .foreach(entry => {
+                tps = tps.-(entry.getKey)
+              })
             map.putAll(getKafkaSourceOffset(tps.toList))
 
             map
           }
-          case Failure(rsf)
-          => {
+          case Failure(rsf) => {
             throw new Exception(rsf.getMessage)
           }
         }
@@ -240,9 +258,11 @@ class Kafka extends BaseStaticInput {
 
     def getTopicPartition(topic: String): List[TopicPartition] = {
       var list = new ListBuffer[TopicPartition]
-      consumer.partitionsFor(topic).foreach(partitionInfo => {
-        list.append(new TopicPartition(topic, partitionInfo.partition()))
-      })
+      consumer
+        .partitionsFor(topic)
+        .foreach(partitionInfo => {
+          list.append(new TopicPartition(topic, partitionInfo.partition()))
+        })
       list.toList
     }
 

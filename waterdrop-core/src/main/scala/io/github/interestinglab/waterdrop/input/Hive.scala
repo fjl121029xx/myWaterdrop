@@ -9,29 +9,31 @@ class Hive extends BaseStaticInput {
   var config: Config = ConfigFactory.empty()
 
   /**
-    * Set Config.
-    **/
+   * Set Config.
+   */
   override def setConfig(config: Config): Unit = {
     this.config = config
   }
 
   /**
-    * Get Config.
-    **/
+   * Get Config.
+   */
   override def getConfig(): Config = {
     this.config
   }
 
   /**
-    * Get Dataset from this Static Input.
-    **/
+   * Get Dataset from this Static Input.
+   */
   override def getDataset(spark: SparkSession): Dataset[Row] = {
 
-    spark.sql(buildSqlStr)
+    val ds = spark.sql(buildSqlStr)
+    ds
 
   }
 
   def buildSqlStr: String = {
+
     val query = config.getString("query")
     val database = config.getString("database")
     val table = config.getString("table")
@@ -42,12 +44,22 @@ class Hive extends BaseStaticInput {
     val sqlStr = if (query.isEmpty) s"SELECT $columns FROM $database.$table $where $partition" else query
 
     sqlStr
+
   }
 
   /**
-    * Return true and empty string if config is valid, return false and error message if config is invalid.
-    */
+   * Return true and empty string if config is valid, return false and error message if config is invalid.
+   */
   override def checkConfig(): (Boolean, String) = {
+
+    config.hasPath("query") match {
+      case true => (true, "[INFO] use query mode")
+      case false =>
+        config.hasPath("database") && config.hasPath("table") match {
+          case true => (true, "[INFO] use auto mode")
+          case false => (false, "[ERROR] please specify <database> and <table> both as string")
+        }
+    }
 
   }
 
