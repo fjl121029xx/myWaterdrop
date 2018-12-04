@@ -73,11 +73,6 @@ class File extends BaseStaticInput {
 
     }
 
-    val path = buildPathWithDefaultSchema(config.getString("path"), "file://")
-
-    format match {
-      case "text" => reader.load(path).withColumnRenamed("value", "raw_message")
-      case _ => reader.load(path)
-    }
+    reader.load(buildPathWithDefaultSchema(config.getString("path"), "file://"))
   }
 }

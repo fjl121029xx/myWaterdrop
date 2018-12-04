@@ -1,7 +1,6 @@
 package io.github.interestinglab.waterdrop.input
 
 import java.sql.{Connection, DriverManager}
-import java.util.Map.Entry
 import java.{lang, util}
 import java.util.Properties
 
