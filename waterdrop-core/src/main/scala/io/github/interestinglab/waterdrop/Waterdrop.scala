@@ -171,10 +171,9 @@ object Waterdrop extends Logging {
       println("\t" + key + " => " + value)
     })
 
-    //test ↓
+    //test
     sparkConf.setMaster("local")
-    System.setProperty("java.security.auth.login.config", "/Users/jiaquanyu/Downloads/kafka_client_jaas.conf")
-    //↑
+    //System.setProperty("java.security.auth.login.config", "/Users/jiaquanyu/Downloads/kafka_client_jaas.conf")
 
     val sparkSession = SparkSession.builder.config(sparkConf).getOrCreate()
 
