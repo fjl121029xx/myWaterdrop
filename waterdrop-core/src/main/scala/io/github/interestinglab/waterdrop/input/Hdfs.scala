@@ -53,8 +53,6 @@ class Hdfs extends BaseStaticInput {
     path
   }
 
-  /**
-   * */
   override def getDataset(spark: SparkSession): Dataset[Row] = {
 
     val format = config.getString("format")
@@ -72,13 +70,8 @@ class Hdfs extends BaseStaticInput {
         reader = reader.options(optionMap)
       }
       case Failure(exception) => // do nothing
-
     }
 
-    val path = buildPathWithDefaultSchema(config.getString("path"), "hdfs://")
-    format match {
-      case "text" => reader.load(path).withColumnRenamed("value", "raw_message")
-      case _ => reader.load(path)
-    }
+    reader.load(buildPathWithDefaultSchema( config.getString("path"), "hdfs://"))
   }
 }
