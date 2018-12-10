@@ -57,7 +57,7 @@ class Hive extends BaseStaticInput {
       case false =>
         config.hasPath("database") && config.hasPath("table") match {
           case true => (true, "[INFO] use auto mode")
-          case false => (false, "[ERROR] please specify <database> and <table> both as string")
+          case false => (false, "[ERROR] please specify [database] and [table] both as string")
         }
     }
 

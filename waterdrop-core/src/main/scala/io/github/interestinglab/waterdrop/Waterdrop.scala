@@ -176,6 +176,7 @@ object Waterdrop extends Logging {
     //System.setProperty("java.security.auth.login.config", "/Users/jiaquanyu/Downloads/kafka_client_jaas.conf")
 
     val sparkSession = SparkSession.builder.config(sparkConf).getOrCreate()
+    //    val sparkSession = SparkSession.builder.config(sparkConf).enableHiveSupport().getOrCreate()
 
     // find all user defined UDFs and register in application init
     UdfRegister.findAndRegisterUdfs(sparkSession)
