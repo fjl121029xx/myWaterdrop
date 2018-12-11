@@ -12,9 +12,13 @@ class Canal extends BaseFilter {
 
   var conf: Config = ConfigFactory.empty()
 
+  //fields name
   val SOURCE_FIELD = "fields"
+  val DATABASE_NAME = "databaseName"
   val TABLE_NAME = "tableName"
   val ACTION_TYPE = "actionType"
+  val TS = "ts"
+  val M_ACTION_TIME = "mActionTime"
 
   override def setConfig(config: Config): Unit = {
     this.conf = config
@@ -53,6 +57,7 @@ class Canal extends BaseFilter {
     spark.read.json(jsonRDD)
   }
 
+  //extract and put fields from json string
   private def canalFieldsExtract(it: Iterator[String]): Iterator[String] = {
 
     val lb = ListBuffer[String]()
@@ -60,12 +65,14 @@ class Canal extends BaseFilter {
     while (it.hasNext) {
       val next = JSON.parseObject(it.next)
       val source = next.getJSONObject(SOURCE_FIELD)
-      val databaseName = next.getString("databaseName")
-      val actionType = next.getString("actionType")
-      val mActionTime = next.getString("ts").split(",")(0)
-      source.put("databaseName", databaseName)
-      source.put("actionType", actionType)
-      source.put("mActionTime", mActionTime)
+      val databaseName = next.getString(DATABASE_NAME)
+      val tableName = next.getString(TABLE_NAME)
+      val actionType = next.getString(ACTION_TYPE)
+      val mActionTime = next.getString(TS).split(",")(0)
+      source.put(DATABASE_NAME, databaseName)
+      source.put(TABLE_NAME, tableName)
+      source.put(ACTION_TYPE, actionType)
+      source.put(M_ACTION_TIME, mActionTime)
       lb.append(source.toString)
     }
 

@@ -15,8 +15,8 @@ import scala.collection.mutable
 
 class Hive extends BaseOutput {
 
-  val hdfs_prefix = "hdfs://cluster"
-  var conf = ConfigFactory.empty
+  val hdfs_prefix: String = "hdfs://cluster"
+  var conf: Config = ConfigFactory.empty
 
   override def setConfig(config: Config): Unit = {
     this.conf = config
@@ -34,7 +34,7 @@ class Hive extends BaseOutput {
         val path = conf.getString("path")
         path.startsWith("/") match {
           case true => (true, "")
-          case false => (false, "invalid path URI, it shoud be start with '/'")
+          case false => (false, "invalid path URI, it should be start with '/'")
         }
       }
       case false => (false, "please specify [database] [table] [path] as non-empty string")
@@ -66,7 +66,7 @@ class Hive extends BaseOutput {
     pt_str
   }
 
-  private def getColCompatMap(cols: List[String], arr: Array[String]): mutable.HashMap[String, Int] = {
+  private def getColMatchMap(cols: List[String], arr: Array[String]): mutable.HashMap[String, Int] = {
     var map = new mutable.HashMap[String, Int]
     arr.foreach(key =>
       if (cols.contains(key.toLowerCase)) {
@@ -95,18 +95,18 @@ class Hive extends BaseOutput {
 
     import df.sparkSession.implicits._
 
-    val cols = getColName(df.sparkSession)
+    val cols = getColNames(df.sparkSession)
     val out_path = buildOutputPath(conf.getString("path"))
     val delim = conf.getString("delimiter")
 
-    val compatMap = getColCompatMap(cols, df.columns)
+    val matchMap = getColMatchMap(cols, df.columns)
 
     val out_ds = df.map(row => {
       val sb = new StringBuilder()
 
       cols.foreach(col => {
-        if (compatMap.contains(col)) {
-          val col_index = compatMap.get(col)
+        if (matchMap.contains(col)) {
+          val col_index = matchMap.get(col)
           sb.append(row.get(col_index.get))
         } else {
           sb.append("\\N")
@@ -121,7 +121,7 @@ class Hive extends BaseOutput {
 
   }
 
-  private def getColName(sparkSession: SparkSession): List[String] = {
+  private def getColNames(sparkSession: SparkSession): List[String] = {
 
     val db = conf.getString("database")
     val table = conf.getString("table")
