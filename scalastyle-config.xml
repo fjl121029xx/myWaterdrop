@@ -35,7 +35,7 @@
   </parameters>
  </check>
 
- <check level="error" class="org.scalastyle.file.IndentationChecker" enabled="true">
+ <check level="warning" class="org.scalastyle.file.IndentationChecker" enabled="true">
   <parameters>
    <parameter name="tabSize">2</parameter>
    <parameter name="methodParamIndentSize">2</parameter>

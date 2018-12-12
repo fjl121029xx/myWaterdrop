@@ -12,7 +12,12 @@ class Canal extends BaseFilter {
 
   var conf: Config = ConfigFactory.empty()
 
+  //fields name
+  val SOURCE_FIELD = "fields"
+  val DATABASE_NAME = "databaseName"
+  val TABLE_NAME = "tableName"
   val ACTION_TYPE = "actionType"
+  val TS = "ts"
 
   override def setConfig(config: Config): Unit = {
     this.conf = config
@@ -22,17 +27,15 @@ class Canal extends BaseFilter {
     this.conf
   }
 
-  override def checkConfig: (Boolean, String) = (true, "")
+  override def checkConfig(): (Boolean, String) = (true, "")
 
   override def prepare(spark: SparkSession): Unit = {
     super.prepare(spark)
 
     val defaultConfig = ConfigFactory.parseMap(
       Map(
-        "source_field" -> "fields", //fileds source
-        "table_name" -> "tableName", //table name
-        "action_type" -> "actionType", //sql action type insert/update/delete
-        "table.include" -> "*"
+        "table.regex" -> ".*",
+        "table.delete.option" -> false
       )
     )
     conf = conf.withFallback(defaultConfig)
@@ -42,54 +45,49 @@ class Canal extends BaseFilter {
 
     import spark.implicits._
 
-    val newDf = conf.getString("table.include") match {
-      case "*" => df
-      case s: String => df.filter(conf.getString("table_name") + " in (\"" + s.replace(",", "\",\"") + "\")")
+    //filter empty dataset
+    if (df.count == 0) {
+      println("[WARN] dataset is empty, return empty dataframe")
+      spark.emptyDataFrame
+    } else {
+      //dataset pre-process,convert to dataframe
+      val jsonDf = spark.read.json(df.map(_.mkString))
+
+      //filter table name
+      val table_regex = conf.getString("table.regex")
+      val delete_option = conf.getBoolean("table.delete.option")
+      val newDf = jsonDf.filter($"$TABLE_NAME".rlike(table_regex))
+
+      //filter delete
+      val jsonRDD = delete_option match {
+        case true => newDf.toJSON.mapPartitions(canalFieldsExtract)
+        case false => newDf.filter($"$ACTION_TYPE".notEqual("DELETE")).toJSON.mapPartitions(canalFieldsExtract)
+      }
+      spark.read.json(jsonRDD)
     }
 
-    val jsonRDD = conf.hasPath("table.delete.option") match {
-      case true => {
-        val delOptions = JSON.parseObject(conf.getString("table.delete.option"))
-        newDf.toJSON.mapPartitions(canalFiledsExtract(_,delOptions))
-      }
-      case false => {
-        newDf.filter(conf.getString("action_type") + " != 'DELETE'")
-          .toJSON.mapPartitions(canalFiledsExtract(_, null))
-      }
-    }
-    spark.read.json(jsonRDD)
   }
 
-  private def canalFiledsExtract(it: Iterator[String], delOptions: JSONObject): Iterator[String] = {
+  //extract and put fields from json string
+  private def canalFieldsExtract(it: Iterator[String]): Iterator[String] = {
 
     val lb = ListBuffer[String]()
 
-    delOptions == null match {
-      case true => {
-        while (it.hasNext) {
-          lb.append((JSON.parseObject(it.next).getJSONObject(conf.getString("source_field")).toString))
-        }
-      }
-      case false => {
-        while (it.hasNext) {
-          val next = JSON.parseObject(it.next)
-
-          val source = next.getJSONObject(conf.getString("source_field"))
-
-          (delOptions.containsKey(next.getString(conf.getString("table_name"))),
-            next.getString(conf.getString("action_type")) == "DELETE") match {
-            case (true, true) => {
-              val delOption = delOptions.getJSONObject(next.getString(conf.getString("table_name")))
-              delOption.keySet.foreach(key => source.put(key,delOption.get(key)))
-              lb.append(source.toString)
-            }
-            case (false, true) => //filter delete
-            case _ => lb.append(source.toString)
-          }
-        }
-      }
+    while (it.hasNext) {
+      val next = JSON.parseObject(it.next)
+      val source = next.getJSONObject(SOURCE_FIELD)
+      val mDatabaseName = next.getString(DATABASE_NAME)
+      val mTableName = next.getString(TABLE_NAME)
+      val mActionType = next.getString(ACTION_TYPE)
+      val mActionTime = next.getString(TS).split(",")(0)
+      source.put("mDatabaseName", mDatabaseName)
+      source.put("mTableName", mTableName)
+      source.put("mActionType", mActionType)
+      source.put("mActionTime", mActionTime)
+      lb.append(source.toString)
     }
 
     lb.toIterator
   }
+
 }

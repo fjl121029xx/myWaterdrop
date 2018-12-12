@@ -171,12 +171,7 @@ object Waterdrop extends Logging {
       println("\t" + key + " => " + value)
     })
 
-    //test ↓
-    sparkConf.setMaster("local")
-    System.setProperty("java.security.auth.login.config","/Users/jiaquanyu/Downloads/kafka_client_jaas.conf")
-    //↑
-
-    val sparkSession = SparkSession.builder.config(sparkConf).getOrCreate()
+    val sparkSession = SparkSession.builder.config(sparkConf).enableHiveSupport().getOrCreate()
 
     // find all user defined UDFs and register in application init
     UdfRegister.findAndRegisterUdfs(sparkSession)
@@ -193,7 +188,7 @@ object Waterdrop extends Logging {
 
   /**
    * Streaming Processing
-   * */
+   **/
   private def streamingProcessing(
     sparkSession: SparkSession,
     configBuilder: ConfigBuilder,
@@ -276,7 +271,7 @@ object Waterdrop extends Logging {
 
   /**
    * Batch Processing
-   * */
+   **/
   private def batchProcessing(
     sparkSession: SparkSession,
     configBuilder: ConfigBuilder,
@@ -290,11 +285,11 @@ object Waterdrop extends Logging {
     showWaterdropAsciiLogo()
 
     if (staticInputs.nonEmpty) {
-      for (input <- staticInputs){
+      for (input <- staticInputs) {
         var ds = input.getDataset(sparkSession)
         if (ds.columns.length > 0) {
           for (f <- filters) {
-          ds = f.process(sparkSession, ds)
+            ds = f.process(sparkSession, ds)
           }
           outputs.foreach(p => {
             p.process(ds)
