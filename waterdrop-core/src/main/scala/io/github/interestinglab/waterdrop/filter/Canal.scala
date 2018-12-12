@@ -45,20 +45,27 @@ class Canal extends BaseFilter {
 
     import spark.implicits._
 
-    //dataset pre-process,convert to dataframe
-    val jsonDf = spark.read.json(df.map(_.mkString))
+    //filter empty dataset
+    if (df.count == 0) {
+      println("[WARN] dataset is empty, return empty dataframe")
+      spark.emptyDataFrame
+    } else {
+      //dataset pre-process,convert to dataframe
+      val jsonDf = spark.read.json(df.map(_.mkString))
 
-    //filter table name
-    val table_regex = conf.getString("table.regex")
-    val delete_option = conf.getBoolean("table.delete.option")
-    val newDf = jsonDf.filter($"$TABLE_NAME".rlike(table_regex))
+      //filter table name
+      val table_regex = conf.getString("table.regex")
+      val delete_option = conf.getBoolean("table.delete.option")
+      val newDf = jsonDf.filter($"$TABLE_NAME".rlike(table_regex))
 
-    //filter delete
-    val jsonRDD = delete_option match {
-      case true => newDf.toJSON.mapPartitions(canalFieldsExtract)
-      case false => newDf.filter($"$ACTION_TYPE".notEqual("DELETE")).toJSON.mapPartitions(canalFieldsExtract)
+      //filter delete
+      val jsonRDD = delete_option match {
+        case true => newDf.toJSON.mapPartitions(canalFieldsExtract)
+        case false => newDf.filter($"$ACTION_TYPE".notEqual("DELETE")).toJSON.mapPartitions(canalFieldsExtract)
+      }
+      spark.read.json(jsonRDD)
     }
-    spark.read.json(jsonRDD)
+
   }
 
   //extract and put fields from json string

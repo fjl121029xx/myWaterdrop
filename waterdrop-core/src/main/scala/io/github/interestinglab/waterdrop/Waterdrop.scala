@@ -171,13 +171,6 @@ object Waterdrop extends Logging {
       println("\t" + key + " => " + value)
     })
 
-    //test
-    //sparkConf.setMaster("local")
-    //System.setProperty("java.security.auth.login.config", "/Users/adamlee/Desktop/kafka_client_jaas.conf")
-    //System.setProperty("java.security.auth.login.config", "/Users/adamlee/Desktop/kafka_client_jaas_test.conf")
-    //val sparkSession = SparkSession.builder.config(sparkConf).getOrCreate()
-
-    //pro
     val sparkSession = SparkSession.builder.config(sparkConf).enableHiveSupport().getOrCreate()
 
     // find all user defined UDFs and register in application init

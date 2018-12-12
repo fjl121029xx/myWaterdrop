@@ -65,7 +65,7 @@ class Hive extends BaseOutput {
         "yyyyMMdd"
     }
     val sdf = new SimpleDateFormat(pattern)
-    val pt_str = "/" + sdf.format(cal.getTime)
+    val pt_str = "/pt=" + sdf.format(cal.getTime)
     pt_str
   }
 
@@ -98,32 +98,40 @@ class Hive extends BaseOutput {
 
     import df.sparkSession.implicits._
 
-    val cols = getColNames(df.sparkSession)
-    val out_path = buildOutputPath(conf.getString("path"))
-    val delim = conf.getString("delimiter")
+    //filter empty dataset
+    if (df.count() == 0) {
+      println("[WARN] dataset is empty, do nothing")
+    } else {
+      val cols = getColNames(df.sparkSession)
+      val out_path = buildOutputPath(conf.getString("path"))
+      val delim = conf.getString("delimiter")
 
-    val matchMap = getColMatchMap(cols, df.columns)
+      // match binlog column names
+      val matchMap = getColMatchMap(cols, df.columns)
 
-    val out_ds = df.map(row => {
-      val sb = new StringBuilder()
+      // convert json to row text with delimiter
+      val out_ds = df.map(row => {
+        val sb = new StringBuilder()
 
-      cols.foreach(col => {
-        if (matchMap.contains(col)) {
-          val col_index = matchMap.get(col)
-          sb.append(row.get(col_index.get))
-        } else {
-          sb.append("\\N")
-        }
-        sb.append(delim)
+        cols.foreach(col => {
+          if (matchMap.contains(col)) {
+            val col_index = matchMap.get(col)
+            sb.append(row.get(col_index.get))
+          } else {
+            sb.append("\\N")
+          }
+          sb.append(delim)
+        })
+        sb.substring(0, sb.length - 1)
       })
-      sb.substring(0, sb.length - 1)
-    })
 
-    val writer = out_ds.write.mode(conf.getString("save_mode"))
-    writer.text(out_path)
+      val writer = out_ds.write.mode(conf.getString("save_mode"))
+      writer.text(out_path)
+    }
 
   }
 
+  // get hive table column names
   private def getColNames(sparkSession: SparkSession): List[String] = {
 
     val db = conf.getString("database")
