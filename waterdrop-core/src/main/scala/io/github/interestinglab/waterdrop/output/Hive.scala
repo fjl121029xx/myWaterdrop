@@ -12,7 +12,7 @@ import scala.collection.mutable
 
 class Hive extends BaseOutput {
 
-  val hdfs_prefix: String = "hdfs://cluster"
+  val hdfs_prefix: String = "hdfs://"
   var conf: Config = ConfigFactory.empty
 
   override def setConfig(config: Config): Unit = {
