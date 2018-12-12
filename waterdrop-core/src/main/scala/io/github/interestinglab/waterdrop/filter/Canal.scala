@@ -18,7 +18,6 @@ class Canal extends BaseFilter {
   val TABLE_NAME = "tableName"
   val ACTION_TYPE = "actionType"
   val TS = "ts"
-  val M_ACTION_TIME = "mActionTime"
 
   override def setConfig(config: Config): Unit = {
     this.conf = config
@@ -46,10 +45,15 @@ class Canal extends BaseFilter {
 
     import spark.implicits._
 
+    //dataset pre-process,convert to dataframe
+    val jsonDf = spark.read.json(df.map(_.mkString))
+
+    //filter table name
     val table_regex = conf.getString("table.regex")
     val delete_option = conf.getBoolean("table.delete.option")
-    val newDf = df.filter($"$TABLE_NAME".rlike(table_regex))
+    val newDf = jsonDf.filter($"$TABLE_NAME".rlike(table_regex))
 
+    //filter delete
     val jsonRDD = delete_option match {
       case true => newDf.toJSON.mapPartitions(canalFieldsExtract)
       case false => newDf.filter($"$ACTION_TYPE".notEqual("DELETE")).toJSON.mapPartitions(canalFieldsExtract)
@@ -65,14 +69,14 @@ class Canal extends BaseFilter {
     while (it.hasNext) {
       val next = JSON.parseObject(it.next)
       val source = next.getJSONObject(SOURCE_FIELD)
-      val databaseName = next.getString(DATABASE_NAME)
-      val tableName = next.getString(TABLE_NAME)
-      val actionType = next.getString(ACTION_TYPE)
+      val mDatabaseName = next.getString(DATABASE_NAME)
+      val mTableName = next.getString(TABLE_NAME)
+      val mActionType = next.getString(ACTION_TYPE)
       val mActionTime = next.getString(TS).split(",")(0)
-      source.put(DATABASE_NAME, databaseName)
-      source.put(TABLE_NAME, tableName)
-      source.put(ACTION_TYPE, actionType)
-      source.put(M_ACTION_TIME, mActionTime)
+      source.put("mDatabaseName", mDatabaseName)
+      source.put("mTableName", mTableName)
+      source.put("mActionType", mActionType)
+      source.put("mActionTime", mActionTime)
       lb.append(source.toString)
     }
 
