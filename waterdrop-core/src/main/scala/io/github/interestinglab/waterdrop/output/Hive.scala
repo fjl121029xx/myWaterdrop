@@ -1,13 +1,10 @@
 package io.github.interestinglab.waterdrop.output
 
 import java.text.SimpleDateFormat
-import java.util.Date
+import java.util.Calendar
 
-import com.alibaba.fastjson.JSON
 import com.typesafe.config.{Config, ConfigFactory}
 import io.github.interestinglab.waterdrop.apis.BaseOutput
-import java.io
-
 import org.apache.spark.sql.{Dataset, Row, SparkSession}
 
 import scala.collection.JavaConversions._
@@ -51,18 +48,24 @@ class Hive extends BaseOutput {
       if ("none".equals(conf.getString("partition"))) {
         ""
       } else {
-        getPartitionStr(conf.getString("partition").split(":")(0), conf.getString("partition").split(":")(1))
+        getPartitionStr(conf.getString("partition").split(":")(0), conf.getString("partition").split(":")(1).toInt)
       }
     }
     partition
   }
 
-  private def getPartitionStr(pt: String, offset: String): String = {
+  private def getPartitionStr(pt: String, offset: Int): String = {
+    val cal = Calendar.getInstance()
     val pattern = pt match {
-      case "hour" => "yyyyMMddHH"
-      case "day" => "yyyyMMdd"
+      case "hour" =>
+        cal.add(Calendar.HOUR_OF_DAY, offset)
+        "yyyyMMddHH"
+      case "day" =>
+        cal.add(Calendar.DATE, offset)
+        "yyyyMMdd"
     }
-    val pt_str = "/" + new SimpleDateFormat(pattern).format(new Date())
+    val sdf = new SimpleDateFormat(pattern)
+    val pt_str = "/" + sdf.format(cal.getTime)
     pt_str
   }
 
