@@ -74,7 +74,7 @@ class Hive extends BaseOutput {
     arr.foreach(key =>
       if (cols.contains(key.toLowerCase)) {
         map += key.toLowerCase -> arr.indexOf(key)
-    })
+      })
     map
   }
 
@@ -117,9 +117,12 @@ class Hive extends BaseOutput {
           if (matchMap.contains(col)) {
             val col_index = matchMap.get(col)
             // get column value string and replace '\u0001', '\n' to space
-            val colStr =
-              if (row.get(col_index.get) == null) "\\N"
-              else row.get(col_index.get).toString.replaceAll("\u0001", " ").replaceAll("\n", " ")
+            val colStr = row.get(col_index.get) match {
+              case null => "\\N"
+              case _ => {
+                row.get(col_index.get).toString.replaceAll("\u0001", " ").replaceAll("\n", " ")
+              }
+            }
             sb.append(colStr)
           } else {
             sb.append("\\N")
