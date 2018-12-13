@@ -116,7 +116,9 @@ class Hive extends BaseOutput {
         cols.foreach(col => {
           if (matchMap.contains(col)) {
             val col_index = matchMap.get(col)
-            sb.append(row.get(col_index.get))
+            // get column value string and replace '\u0001', '\n' to space
+            val colStr = row.get(col_index.get).toString.replaceAll("\u0001", " ").replaceAll("\n", " ")
+            sb.append(colStr)
           } else {
             sb.append("\\N")
           }
