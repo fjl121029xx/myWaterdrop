@@ -10,7 +10,8 @@ val sparkVersion = "2.3.1"
 lazy val providedDependencies = Seq(
   "org.apache.spark" %% "spark-core" % sparkVersion,
   "org.apache.spark" %% "spark-sql" % sparkVersion,
-  "org.apache.spark" %% "spark-streaming" % sparkVersion
+  "org.apache.spark" %% "spark-streaming" % sparkVersion,
+  "org.apache.spark" %% "spark-hive" % sparkVersion
 )
 
 // Change dependepcy scope to "provided" by : sbt -DprovidedDeps=true <task>
@@ -82,6 +83,9 @@ assemblyMergeStrategy in assembly := {
   case PathList(ps@_*) if ps.last endsWith ".html" => MergeStrategy.first
   case PathList(ps@_*) if ps.last endsWith ".class" => MergeStrategy.first
   case PathList(ps@_*) if ps.last endsWith ".properties" => MergeStrategy.first
+  case PathList(ps @ _*) if ps.last endsWith ".fmpp"=> MergeStrategy.first
+  case PathList(ps @ _*) if ps.last endsWith ".thrift"=> MergeStrategy.first
+  case PathList(ps @ _*) if ps.last endsWith ".xml"=> MergeStrategy.first
 
   case x =>
     val oldStrategy = (assemblyMergeStrategy in assembly).value
