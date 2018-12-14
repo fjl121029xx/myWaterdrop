@@ -148,6 +148,7 @@ class Hive extends BaseOutput {
       .sql("desc " + db + "." + table)
       .toDF()
       .select("col_name")
+      .filter("data_type not in('','data_type') and col_name != 'pt'")
       .collect()
 
     colNameArr.map(_.get(0).toString).toList
