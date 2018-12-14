@@ -29,8 +29,6 @@ class Convert extends BaseFilter {
   override def checkConfig(): (Boolean, String) = {
     if (!conf.hasPath("source_field")) {
       (false, "please specify [source_field] as a non-empty string")
-    } else if (!conf.hasPath("new_type")) {
-      (false, "please specify [new_type] as a non-empty string")
     } else {
       (true, "")
     }
@@ -41,7 +39,8 @@ class Convert extends BaseFilter {
 
     val defaultConfig = ConfigFactory.parseMap(
       Map(
-        "value_fields" -> "" //字符串转换 $id 从字段获]取 0 则为常量
+        "value_fields" -> "", //字符串转换 $id 从字段获]取 0 则为常量
+        "new_type" -> "string"
       )
     )
     conf = conf.withFallback(defaultConfig)
