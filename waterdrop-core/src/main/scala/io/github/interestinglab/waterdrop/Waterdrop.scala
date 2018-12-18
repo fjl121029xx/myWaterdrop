@@ -5,14 +5,13 @@ import java.io.File
 import io.github.interestinglab.waterdrop.apis.{BaseFilter, BaseOutput, BaseStaticInput, BaseStreamingInput}
 import io.github.interestinglab.waterdrop.config._
 import io.github.interestinglab.waterdrop.filter.UdfRegister
-import io.github.interestinglab.waterdrop.utils.CompressionUtils
-import io.github.interestinglab.waterdrop.utils.AsciiArt
+import io.github.interestinglab.waterdrop.utils.{AsciiArt, CompressionUtils}
 import org.apache.commons.lang3.exception.ExceptionUtils
 import org.apache.hadoop.fs.Path
 import org.apache.spark.SparkConf
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.encoders.RowEncoder
-import org.apache.spark.sql.types.{StringType, StructField, StructType}
+import org.apache.spark.sql.types.{DataTypes, StructType}
 import org.apache.spark.sql.{Row, SparkSession}
 import org.apache.spark.streaming._
 
@@ -234,9 +233,9 @@ object Waterdrop extends Logging {
       }
 
       // For implicit conversions like converting RDDs to DataFrames
-      import sparkSession.implicits._
 
-      val schema = StructType(Array(StructField("raw_message", StringType)))
+      //      val schema = StructType(Array(StructField("raw_message", StringType)))
+      val schema = new StructType().add("raw_message", DataTypes.StringType)
       val encoder = RowEncoder(schema)
       var ds = sparkSession.createDataset(rowsRDD)(encoder)
 
@@ -271,7 +270,7 @@ object Waterdrop extends Logging {
 
   /**
    * Batch Processing
-   **/
+    **/
   private def batchProcessing(
     sparkSession: SparkSession,
     configBuilder: ConfigBuilder,
