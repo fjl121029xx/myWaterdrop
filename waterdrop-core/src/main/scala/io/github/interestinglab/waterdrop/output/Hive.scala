@@ -48,21 +48,18 @@ class Hive extends BaseOutput {
       if ("none".equals(conf.getString("partition"))) {
         ""
       } else {
-        getPartitionStr(conf.getString("partition").split(":")(0), conf.getString("partition").split(":")(1).toInt)
+        getPartitionStr(conf.getString("partition"))
       }
     }
     partition
   }
 
-  private def getPartitionStr(pt: String, offset: Int): String = {
+  private def getPartitionStr(pt: String): String = {
     val cal = Calendar.getInstance()
+    cal.add(Calendar.HOUR_OF_DAY, -1)
     val pattern = pt match {
-      case "hour" =>
-        cal.add(Calendar.HOUR_OF_DAY, offset)
-        "yyyyMMddHH"
-      case "day" =>
-        cal.add(Calendar.DATE, offset)
-        "yyyyMMdd"
+      case "hour" => "yyyyMMddHH"
+      case "day" => "yyyyMMdd"
     }
     val sdf = new SimpleDateFormat(pattern)
     val pt_str = "/pt=" + sdf.format(cal.getTime)
@@ -74,7 +71,7 @@ class Hive extends BaseOutput {
     arr.foreach(key =>
       if (cols.contains(key.toLowerCase)) {
         map += key.toLowerCase -> arr.indexOf(key)
-      })
+    })
     map
   }
 
@@ -119,9 +116,7 @@ class Hive extends BaseOutput {
             // get column value string and replace '\u0001', '\n' to space
             val colStr = row.get(col_index.get) match {
               case null => "\\N"
-              case _ => {
-                row.get(col_index.get).toString.replaceAll("\u0001", " ").replaceAll("\n", " ")
-              }
+              case _ => row.get(col_index.get).toString.replaceAll("\u0001", " ").replaceAll("\n", " ")
             }
             sb.append(colStr)
           } else {
