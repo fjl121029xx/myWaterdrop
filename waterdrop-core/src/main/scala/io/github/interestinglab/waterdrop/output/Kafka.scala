@@ -2,6 +2,7 @@ package io.github.interestinglab.waterdrop.output
 
 import java.util.Properties
 
+import com.alibaba.fastjson.JSON
 import com.typesafe.config.{Config, ConfigFactory}
 import io.github.interestinglab.waterdrop.apis.BaseOutput
 import org.apache.kafka.clients.producer.{KafkaProducer, ProducerRecord}
@@ -20,14 +21,14 @@ class Kafka extends BaseOutput {
 
   /**
    * Set Config.
-   * */
+    **/
   override def setConfig(config: Config): Unit = {
     this.config = config
   }
 
   /**
    * Get Config.
-   * */
+    **/
   override def getConfig(): Config = {
     this.config
   }
@@ -47,7 +48,7 @@ class Kafka extends BaseOutput {
 
     val defaultConfig = ConfigFactory.parseMap(
       Map(
-        "serializer" -> "json",
+        "serializer" -> "json", //text json
         producerPrefix + ".key.serializer" -> "org.apache.kafka.common.serialization.StringSerializer",
         producerPrefix + ".value.serializer" -> "org.apache.kafka.common.serialization.StringSerializer"
       )
@@ -76,12 +77,19 @@ class Kafka extends BaseOutput {
 
   override def process(df: Dataset[Row]) {
 
-    val dataSet = df.toJSON
-    dataSet.foreach { row =>
-      kafkaSink.foreach { ks =>
-        ks.value.send(config.getString("topic"), row)
+    config.getString("serializer") match {
+      case "text" => {
+        df.foreach { row =>
+          kafkaSink.get.value.send(config.getString("topic"), row.mkString)
+        }
+      }
+      case _ => {
+        df.toJSON.foreach(row => {
+          kafkaSink.get.value.send(config.getString("topic"), row)
+        })
       }
     }
+
   }
 
 }
