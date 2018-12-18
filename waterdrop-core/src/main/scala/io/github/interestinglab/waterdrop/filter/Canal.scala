@@ -17,7 +17,7 @@ class Canal extends BaseFilter {
   val DATABASE_NAME = "databaseName"
   val TABLE_NAME = "tableName"
   val ACTION_TYPE = "actionType"
-  val TS = "ts"
+  val UNIX_TS = "unixTs"
 
   override def setConfig(config: Config): Unit = {
     this.conf = config
@@ -77,13 +77,17 @@ class Canal extends BaseFilter {
     while (it.hasNext) {
       val next = JSON.parseObject(it.next)
       val source = next.getJSONObject(SOURCE_FIELD)
+      val mDatabaseName = next.getString(DATABASE_NAME)
+      val mTableName = next.getString(TABLE_NAME)
+      val mActionType = next.getString(ACTION_TYPE)
+      val mActionTime = next.getLong(UNIX_TS)
 
       conf.getBoolean("canal.field.include") match {
         case true => {
-          source.put("mDatabaseName", next.getString(DATABASE_NAME))
-          source.put("mTableName", next.getString(TABLE_NAME))
-          source.put("mActionType", next.getString(ACTION_TYPE))
-          source.put("mActionTime", next.getString(TS).split(",")(0))
+          source.put("mDatabaseName", mDatabaseName)
+          source.put("mTableName", mTableName)
+          source.put("mActionType", mActionType)
+          source.put("mActionTime", mActionTime)
         }
         case false => //do nothing
       }
