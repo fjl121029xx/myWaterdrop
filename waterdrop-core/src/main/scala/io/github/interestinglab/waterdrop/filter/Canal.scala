@@ -1,6 +1,6 @@
 package io.github.interestinglab.waterdrop.filter
 
-import com.alibaba.fastjson.{JSON, JSONObject}
+import com.alibaba.fastjson.JSON
 import com.typesafe.config.{Config, ConfigFactory}
 import io.github.interestinglab.waterdrop.apis.BaseFilter
 import org.apache.spark.sql.{Dataset, Row, SparkSession}
@@ -35,7 +35,8 @@ class Canal extends BaseFilter {
     val defaultConfig = ConfigFactory.parseMap(
       Map(
         "table.regex" -> ".*",
-        "table.delete.option" -> false
+        "table.delete.option" -> false,
+        "canal.field.include" -> true
       )
     )
     conf = conf.withFallback(defaultConfig)
@@ -51,7 +52,7 @@ class Canal extends BaseFilter {
       spark.emptyDataFrame
     } else {
       //dataset pre-process,convert to dataframe
-      val jsonDf = spark.read.json(df.map(_.mkString))
+      val jsonDf = spark.read.json(df.mapPartitions(it => it.map(_.mkString)))
 
       //filter table name
       val table_regex = conf.getString("table.regex")
@@ -76,14 +77,16 @@ class Canal extends BaseFilter {
     while (it.hasNext) {
       val next = JSON.parseObject(it.next)
       val source = next.getJSONObject(SOURCE_FIELD)
-      val mDatabaseName = next.getString(DATABASE_NAME)
-      val mTableName = next.getString(TABLE_NAME)
-      val mActionType = next.getString(ACTION_TYPE)
-      val mActionTime = next.getString(TS).split(",")(0)
-      source.put("mDatabaseName", mDatabaseName)
-      source.put("mTableName", mTableName)
-      source.put("mActionType", mActionType)
-      source.put("mActionTime", mActionTime)
+
+      conf.getBoolean("canal.field.include") match {
+        case true => {
+          source.put("mDatabaseName", next.getString(DATABASE_NAME))
+          source.put("mTableName", next.getString(TABLE_NAME))
+          source.put("mActionType", next.getString(ACTION_TYPE))
+          source.put("mActionTime", next.getString(TS).split(",")(0))
+        }
+        case false => //do nothing
+      }
       lb.append(source.toString)
     }
 
