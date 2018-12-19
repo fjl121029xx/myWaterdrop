@@ -143,7 +143,6 @@ class Mysql extends BaseOutput {
 
           val upsert = sqlPrefix + sb.toString.substring(0, sb.length() - 1)
 
-          println(upsert)
           mysqlWriter.value.upsert(upsert)
 
           i = 0
