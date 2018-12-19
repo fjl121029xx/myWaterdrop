@@ -16,14 +16,14 @@ class Mysql extends BaseOutput {
   var config: Config = ConfigFactory.empty()
 
   /**
-    * Set Config.
+   * Set Config.
     **/
   override def setConfig(config: Config): Unit = {
     this.config = config
   }
 
   /**
-    * Get Config.
+   * Get Config.
     **/
   override def getConfig(): Config = {
     this.config
@@ -52,8 +52,7 @@ class Mysql extends BaseOutput {
         "driver" -> "com.mysql.jdbc.driver", // allowed values: overwrite, append, ignore, error
         "row.column.toLower" -> false, // convert dataset row column to lower
         "batch.count" -> 100, // insert batch  count
-        "insert.mode" -> "INSERT", // INSERT or REPLACE
-        "field.exclude" -> ""
+        "insert.mode" -> "INSERT" // INSERT or REPLACE
       )
     )
     config = config.withFallback(defaultConfig)
@@ -61,23 +60,37 @@ class Mysql extends BaseOutput {
 
   override def process(df: Dataset[Row]): Unit = {
 
+    //df schema fields
+    val schemeFields = df.schema.fieldNames.toList
+
+    //sql fields type
     val stringFields = List("varchar", "timestamp", "datetime")
     val dateFields = List("timestamp", "datetime")
-
-    val jdbc = config.getString("url")
-    val username = config.getString("username")
-    val password = config.getString("password")
-
     val table = config.getString("table")
 
-    val mysqlWriter = df.sparkSession.sparkContext.broadcast(MysqlWriter(jdbc, username, password))
+    // mysql mysql connect
+    val mysqlWriter = df.sparkSession.sparkContext
+      .broadcast(MysqlWriter(config.getString("url"), config.getString("username"), config.getString("password")))
 
-    val colWithType = mysqlWriter.value.getColWithDataType(table, config.getString("field.exclude"))
+    //get mysql table col with type
+    val colWithType = mysqlWriter.value.getColWithDataType(table)
 
+    //get sql field info
     val fields = colWithType.map(_._1)
-    val fieldStr = list2String(fields)
     val strFields = colWithType.filter(tp => stringFields.contains(tp._2)).map(_._1)
     val timeStampFields = list2String(colWithType.filter(tp => dateFields.contains(tp._2)).map(_._1))
+
+    //df schema intersect sql col
+    val filterFields = fields
+      .map(field => {
+        schemeFields.contains(field) || schemeFields.contains(field.toLowerCase) match {
+          case true => field
+          case false => ""
+        }
+      })
+      .filter(!_.equals(""))
+
+    val fieldStr = list2String(filterFields)
 
     val sqlPrefix = s"${config.getString("insert.mode")} INTO $table ($fieldStr) VALUES "
 
@@ -87,28 +100,40 @@ class Mysql extends BaseOutput {
       while (it.hasNext) {
 
         val nextMap: Map[String, Any] = config.getBoolean("row.column.toLower") match {
-          case true => it.next.getValuesMap(fields.map(_.toLowerCase))
-          case false => it.next.getValuesMap(fields)
+          case true => it.next.getValuesMap(filterFields.map(_.toLowerCase))
+          case false => it.next.getValuesMap(filterFields)
         }
 
         sb.append(s"(");
-        fields.foreach(field => {
+        filterFields.foreach(field => {
 
-          strFields.contains(field) match {
+          schemeFields.contains(field) || schemeFields.contains(field.toLowerCase) match {
             case true => {
 
-              val value = (nextMap.contains(getRowField(field))) match {
-                case true => sb.append("\"" + nextMap.get(getRowField(field)).get.toString.replace("\\", "\\\\").replace("\"", "\\\"") + "\"")
-                case false => sb.append("\"\"")
-              }
+              val rowFieldValue = nextMap.get(getRowField(field)).get
 
-              if (timeStampFields.contains(field) && "".equals(value)) {
-                sb.append("\"2000-01-01 01:01:01\"")
+              strFields.contains(field) && rowFieldValue != null match {
+                case true => {
+
+                  val value = (nextMap.contains(getRowField(field))) match {
+                    case true =>
+                      sb.append(
+                        "\"" + rowFieldValue.toString
+                          .replace("\\", "\\\\")
+                          .replace("\"", "\\\"") + "\"")
+                    case false => sb.append("\"\"")
+                  }
+
+                  if (timeStampFields.contains(field) && "".equals(value)) {
+                    sb.append("\"2000-01-01 01:01:01\"")
+                  }
+                }
+                case false => sb.append(rowFieldValue)
               }
+              if (!fieldStr.endsWith(field)) sb.append(",")
             }
-            case false => sb.append(nextMap.get(getRowField(field)).get)
+            case false => //do nothing
           }
-          if (!fieldStr.endsWith(field)) sb.append(",")
         })
 
         sb.append("),")
@@ -118,12 +143,8 @@ class Mysql extends BaseOutput {
 
           val upsert = sqlPrefix + sb.toString.substring(0, sb.length() - 1)
 
-          try {
-            mysqlWriter.value.upsert(upsert)
-          } catch {
-            case ex: Exception => println(upsert)
-              throw ex
-          }
+          println(upsert)
+          mysqlWriter.value.upsert(upsert)
 
           i = 0
           sb.delete(0, sb.length())
@@ -141,7 +162,7 @@ class MysqlWriter(createWriter: () => Statement) extends Serializable {
 
   lazy val writer = createWriter()
 
-  def getColWithDataType(tableName: String, exclude: String = ""): List[Tuple2[String, String]] = {
+  def getColWithDataType(tableName: String): List[Tuple2[String, String]] = {
 
     val schemaSql = s"SELECT COLUMN_NAME,DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE table_name = '$tableName'"
     val rs = writer.executeQuery(schemaSql)
@@ -149,10 +170,7 @@ class MysqlWriter(createWriter: () => Statement) extends Serializable {
     val lb = new ListBuffer[Tuple2[String, String]]
 
     while (rs.next()) {
-      if (!exclude.split(",").contains(rs.getString(1))) {
-        lb.append((rs.getString(1), rs.getString(2)))
-      }
-
+      lb.append((rs.getString(1), rs.getString(2)))
     }
     lb.toList
   }
@@ -161,7 +179,8 @@ class MysqlWriter(createWriter: () => Statement) extends Serializable {
     try {
       writer.executeUpdate(sql)
     } catch {
-      case ex: Exception => println(sql)
+      case ex: Exception =>
+        println(sql)
         throw ex
     }
   }
