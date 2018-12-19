@@ -11,20 +11,12 @@ import scala.collection.mutable.ListBuffer
 
 class Mysql extends BaseOutput {
 
-  var firstProcess = true
-
   var config: Config = ConfigFactory.empty()
 
-  /**
-   * Set Config.
-    **/
   override def setConfig(config: Config): Unit = {
     this.config = config
   }
 
-  /**
-   * Get Config.
-    **/
   override def getConfig(): Config = {
     this.config
   }
