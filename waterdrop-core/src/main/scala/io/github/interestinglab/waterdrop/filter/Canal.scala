@@ -6,7 +6,6 @@ import io.github.interestinglab.waterdrop.apis.BaseFilter
 import org.apache.spark.sql.{Dataset, Row, SparkSession}
 
 import scala.collection.JavaConversions._
-import scala.collection.mutable.ListBuffer
 
 class Canal extends BaseFilter {
 
@@ -52,19 +51,25 @@ class Canal extends BaseFilter {
       spark.emptyDataFrame
     } else {
       //dataset pre-process,convert to dataframe
-      val jsonDf = spark.read.json(df.mapPartitions(it => it.map(_.mkString)))
-
-      //filter table name
-      val table_regex = conf.getString("table.regex")
-      val delete_option = conf.getBoolean("table.delete.option")
-      val newDf = jsonDf.filter($"$TABLE_NAME".rlike(table_regex))
-
-      //filter delete
-      val jsonRDD = delete_option match {
-        case true => newDf.toJSON.mapPartitions(canalFieldsExtract)
-        case false => newDf.filter($"$ACTION_TYPE".notEqual("DELETE")).toJSON.mapPartitions(canalFieldsExtract)
+      val convertDf = df.schema.size match {
+        case 1 => spark.read.json(df.mapPartitions(it => it.map(_.mkString)))
+        case _ => df
       }
-      spark.read.json(jsonRDD)
+
+      val tableRegex = conf.getString("table.regex")
+
+      //filter table and delete
+      conf.getBoolean("table.delete.option") match {
+        case true =>
+          spark.read.json(convertDf.filter($"$TABLE_NAME".rlike(tableRegex)).toJSON.mapPartitions(canalFieldsExtract))
+        case false =>
+          spark.read.json(
+            convertDf
+              .filter($"$TABLE_NAME".rlike(tableRegex))
+              .filter($"$ACTION_TYPE".notEqual("DELETE"))
+              .toJSON
+              .mapPartitions(canalFieldsExtract))
+      }
     }
 
   }
@@ -72,29 +77,22 @@ class Canal extends BaseFilter {
   //extract and put fields from json string
   private def canalFieldsExtract(it: Iterator[String]): Iterator[String] = {
 
-    val lb = ListBuffer[String]()
+    it.map(row => {
 
-    while (it.hasNext) {
-      val next = JSON.parseObject(it.next)
-      val source = next.getJSONObject(SOURCE_FIELD)
-      val mDatabaseName = next.getString(DATABASE_NAME)
-      val mTableName = next.getString(TABLE_NAME)
-      val mActionType = next.getString(ACTION_TYPE)
-      val mActionTime = next.getLong(UNIX_TS)
+      val rowJ = JSON.parseObject(row)
+      val source = rowJ.getJSONObject(SOURCE_FIELD)
 
       conf.getBoolean("canal.field.include") match {
         case true => {
-          source.put("mDatabaseName", mDatabaseName)
-          source.put("mTableName", mTableName)
-          source.put("mActionType", mActionType)
-          source.put("mActionTime", mActionTime)
+          source.put("mDatabaseName", rowJ.getString(DATABASE_NAME))
+          source.put("mTableName", rowJ.getString(TABLE_NAME))
+          source.put("mActionType", rowJ.getString(ACTION_TYPE))
+          source.put("mActionTime", System.currentTimeMillis())
         }
         case false => //do nothing
       }
-      lb.append(source.toString)
-    }
-
-    lb.toIterator
+      source.toJSONString
+    })
   }
 
 }
