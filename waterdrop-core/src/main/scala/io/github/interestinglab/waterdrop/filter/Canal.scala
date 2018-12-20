@@ -87,7 +87,7 @@ class Canal extends BaseFilter {
           source.put("mDatabaseName", rowJ.getString(DATABASE_NAME))
           source.put("mTableName", rowJ.getString(TABLE_NAME))
           source.put("mActionType", rowJ.getString(ACTION_TYPE))
-          source.put("mActionTime", System.currentTimeMillis())
+          source.put("mActionTime", System.nanoTime())
         }
         case false => //do nothing
       }
