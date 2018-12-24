@@ -17,7 +17,8 @@ class Jdbc extends BaseStaticInput {
 
     val defaultConfig = ConfigFactory.parseMap(
       Map(
-        "jdbc" -> "json"
+        "jdbc" -> "json",
+        "driver" -> "com.mysql.jdbc.Driver"
       )
     )
 
@@ -30,8 +31,7 @@ class Jdbc extends BaseStaticInput {
 
   override def checkConfig(): (Boolean, String) = {
 
-    // TODO: are user, password required ?
-    val requiredOptions = List("driver", "url", "query", "user", "password")
+    val requiredOptions = List("host", "database", "username", "password", "query")
     //判断配置是否齐全
     val nonExistsOptions = requiredOptions.map(optionName => (optionName, config.hasPath(optionName))).filter { p =>
       val (optionName, exists) = p
@@ -39,7 +39,22 @@ class Jdbc extends BaseStaticInput {
     }
 
     nonExistsOptions.length match {
-      case 0 => (true, "")
+      case 0 =>
+        config.getString("query.type") match {
+          case "table" =>
+            if (config.hasPath("query.table") && !config.getString("query.table").isEmpty) {
+              (true, "")
+            } else {
+              (false, "please specify [query.table] as non-empty")
+            }
+          case "sql" =>
+            if (config.hasPath("query.sql") && !config.getString("query.sql").isEmpty) {
+              (true, "")
+            } else {
+              (false, "please specify [query.sql] as non-empty")
+            }
+          case _ => (false, "please specify [query.type] as \"table\" or \"sql\"")
+        }
       case _ =>
         (
           false,
@@ -61,17 +76,22 @@ class Jdbc extends BaseStaticInput {
 
     showJdbcConf()
 
-    val queryConfig = config.getConfig("query")
+    val host = config.getString("host")
+    val database = config.getString("database")
+    val url =
+      s"jdbc:mysql://$host/$database?tinyInt1isBit=false&zeroDateTimeBehavior=convertToNull&autoReconnect=true&serverTimezone=Asia/Shanghai"
     val properties: Properties = getProperties
 
-    queryConfig.getString("type") match {
+    config.getString("query.type") match {
       case "table" =>
-        val frame: Dataset[Row] = reader.jdbc(config.getString("url"), queryConfig.getString("table"), properties)
-        frame
+        if (config.hasPath("query.where")) {
+          reader.jdbc(url, config.getString("query.table"), Array(config.getString("query.where")), properties)
+        } else {
+          reader.jdbc(url, config.getString("query.table"), properties)
+        }
       case "sql" =>
-        val q_sql = "(" + queryConfig.getString("table") + ")" + " " + "t"
-        val frame: Dataset[Row] = reader.jdbc(config.getString("url"), q_sql, properties)
-        frame
+        val sql = "(" + config.getString("query.sql") + ") t"
+        reader.jdbc(url, sql, properties)
     }
 
   }
