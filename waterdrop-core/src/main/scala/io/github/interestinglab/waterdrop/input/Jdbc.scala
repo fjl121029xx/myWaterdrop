@@ -17,7 +17,7 @@ class Jdbc extends BaseStaticInput {
 
     val defaultConfig = ConfigFactory.parseMap(
       Map(
-        "jdbc" -> "json",
+        "format" -> "json",
         "driver" -> "com.mysql.jdbc.Driver"
       )
     )
@@ -71,7 +71,7 @@ class Jdbc extends BaseStaticInput {
 
   override def getDataset(spark: SparkSession): Dataset[Row] = {
 
-    val format = config.getString("jdbc")
+    val format = config.getString("format")
     val reader = spark.read.format(format)
 
     showJdbcConf()
