@@ -286,6 +286,7 @@ object Waterdrop extends Logging {
     if (staticInputs.nonEmpty) {
       for (input <- staticInputs) {
         var ds = input.getDataset(sparkSession)
+        println(s"[INFO] input ${input.getClass.getSimpleName} has done!!!")
         if (ds.columns.length > 0) {
           for (f <- filters) {
             ds = f.process(sparkSession, ds)
