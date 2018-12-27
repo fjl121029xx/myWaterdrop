@@ -2,6 +2,7 @@ package io.github.interestinglab.waterdrop.output
 
 import java.sql.{DriverManager, Statement}
 
+import com.alibaba.fastjson.JSON
 import com.typesafe.config.{Config, ConfigFactory}
 import io.github.interestinglab.waterdrop.apis.BaseOutput
 import org.apache.spark.sql.{Dataset, Row, SparkSession}
@@ -56,7 +57,7 @@ class Mysql extends BaseOutput {
     val schemeFields = df.schema.fieldNames.toList
 
     //sql fields type
-    val stringFields = List("varchar", "timestamp", "datetime")
+    val stringFields = List("varchar", "timestamp", "datetime", "text")
     val dateFields = List("timestamp", "datetime")
     val table = config.getString("table")
 
@@ -86,31 +87,28 @@ class Mysql extends BaseOutput {
 
     val sqlPrefix = s"${config.getString("insert.mode")} INTO $table ($fieldStr) VALUES "
 
-    df.foreachPartition(it => {
+    df.toJSON.foreachPartition(it => {
       var i = 0
       val sb = new StringBuffer
       while (it.hasNext) {
 
-        val nextMap: Map[String, Any] = config.getBoolean("row.column.toLower") match {
-          case true => it.next.getValuesMap(filterFields.map(_.toLowerCase))
-          case false => it.next.getValuesMap(filterFields)
-        }
-
         sb.append(s"(");
+
+        val next = JSON.parseObject(it.next)
+
         filterFields.foreach(field => {
 
           schemeFields.contains(field) || schemeFields.contains(field.toLowerCase) match {
             case true => {
 
-              val rowFieldValue = nextMap.get(getRowField(field)).get
-
-              strFields.contains(field) && rowFieldValue != null match {
+              strFields.contains(field) match {
                 case true => {
 
-                  val value = (nextMap.contains(getRowField(field))) match {
+                  val value = (next.contains(getRowField(field))) match {
                     case true =>
                       sb.append(
-                        "\"" + rowFieldValue.toString
+                        "\"" + next
+                          .getString(getRowField(field))
                           .replace("\\", "\\\\")
                           .replace("\"", "\\\"") + "\"")
                     case false => sb.append("\"\"")
@@ -120,7 +118,7 @@ class Mysql extends BaseOutput {
                     sb.append("\"2000-01-01 01:01:01\"")
                   }
                 }
-                case false => sb.append(rowFieldValue)
+                case false => sb.append(next.get(field))
               }
               if (!fieldStr.endsWith(field)) sb.append(",")
             }
