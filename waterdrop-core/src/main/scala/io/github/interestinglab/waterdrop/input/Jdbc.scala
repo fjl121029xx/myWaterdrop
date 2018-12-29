@@ -85,7 +85,8 @@ class Jdbc extends BaseStaticInput {
     config.getString("query.type") match {
       case "table" =>
         if (config.hasPath("query.where")) {
-          reader.jdbc(url, config.getString("query.table"), Array(config.getString("query.where")), properties)
+          val queryArry = config.getStringList("query.where").map(_.toString).toArray
+          reader.jdbc(url, config.getString("query.table"), queryArry, properties)
         } else {
           reader.jdbc(url, config.getString("query.table"), properties)
         }
