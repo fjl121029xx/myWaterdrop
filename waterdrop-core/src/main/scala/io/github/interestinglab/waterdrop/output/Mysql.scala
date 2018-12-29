@@ -66,7 +66,9 @@ class Mysql extends BaseOutput {
       .broadcast(MysqlWriter(config.getString("url"), config.getString("username"), config.getString("password")))
 
     //get mysql table col with type
-    val colWithType = mysqlWriter.value.getColWithDataType(table)
+    val colWithType = mysqlWriter.value.getColWithDataType(config.getString("url").split("/").last, table)
+
+    println(s"column and type: $colWithType")
 
     //get sql field info
     val fields = colWithType.map(_._1)
@@ -92,7 +94,7 @@ class Mysql extends BaseOutput {
       val sb = new StringBuffer
       while (it.hasNext) {
 
-        sb.append(s"(");
+        sb.append(s"(")
 
         val next = JSON.parseObject(it.next)
 
@@ -151,9 +153,11 @@ class MysqlWriter(createWriter: () => Statement) extends Serializable {
 
   lazy val writer = createWriter()
 
-  def getColWithDataType(tableName: String): List[Tuple2[String, String]] = {
+  def getColWithDataType(dbName: String, tableName: String): List[Tuple2[String, String]] = {
 
-    val schemaSql = s"SELECT COLUMN_NAME,DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE table_name = '$tableName'"
+    val schemaSql =
+      s"SELECT COLUMN_NAME,DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE table_name = '$tableName' AND table_schema = '${dbName}'"
+
     val rs = writer.executeQuery(schemaSql)
 
     val lb = new ListBuffer[Tuple2[String, String]]
