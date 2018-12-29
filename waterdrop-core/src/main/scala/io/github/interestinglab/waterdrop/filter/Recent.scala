@@ -36,7 +36,8 @@ class Recent extends BaseFilter {
       .filter(!_._2)
 
     if (schemaLost.size > 0) {
-      println("[ERROR] union field missing!!!")
+      println(
+        s"[ERROR] union ${schemaLost.map(_._1).toList.toString.replace("List(", "").replace(")", "")} field missing!!!")
       spark.emptyDataFrame
     } else {
       //add increasing unionKey
