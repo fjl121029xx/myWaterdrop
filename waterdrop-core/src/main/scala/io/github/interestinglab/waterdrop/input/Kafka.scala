@@ -57,7 +57,7 @@ class Kafka extends BaseStaticInput {
 
     val defaultConfig = ConfigFactory.parseMap(
       Map(
-        "consumer.auto.offset.reset" -> "earliest", //默认auto.offset.reset=earliest
+        "consumer.auto.offset.clereset" -> "earliest", //默认auto.offset.reset=earliest
         "consumer.key.deserializer" -> "org.apache.kafka.common.serialization.StringDeserializer",
         "consumer.value.deserializer" -> "org.apache.kafka.common.serialization.StringDeserializer"
       )
@@ -98,7 +98,7 @@ class Kafka extends BaseStaticInput {
 
     kafkaSource = Some(sparkSession.sparkContext.broadcast(KafkaSource(props)))
 
-    val beginOffset = getBeginningOffsets(topics)
+    val beginOffset = getBeginningOffsets(topics, sparkSession.sparkContext.appName)
     //get offsets range
     offsetRanges = Some(
       topics
@@ -132,16 +132,16 @@ class Kafka extends BaseStaticInput {
     sparkSession.createDataset(rdd)(RowEncoder(schema))
   }
 
-  override def afterBatch: Unit = {
+  override def afterBatch(spark: SparkSession): Unit = {
 
     //save offset
     config.hasPath(mysqlPrefix) match {
-      case true => saveOffset(offsetRanges.get)
+      case true => saveOffset(offsetRanges.get, spark.sparkContext.appName)
       case false => //do nothing
     }
   }
 
-  def saveOffset(offsetRanges: Array[OffsetRange]): Unit = {
+  def saveOffset(offsetRanges: Array[OffsetRange], appName: String): Unit = {
     val mysqlConf = config.getConfig(mysqlPrefix)
     var conn: Connection = null
 
@@ -158,13 +158,15 @@ class Kafka extends BaseStaticInput {
 
     val updateSql = "UPDATE tbl_wd_kafka_offset SET current = 0 WHERE topic in (\"" + config
       .getString("topics")
-      .replace(",", "\",\"") + "\") AND current = 1"
+      .replace(",", "\",\"") + "\") AND current = 1 AND appName = \"" + appName + "\""
 
-    val insertSql = "INSERT INTO tbl_wd_kafka_offset (topic,partitionNum,current,fromOffset,untilOffset) VALUES "
+    val insertSql =
+      "INSERT INTO tbl_wd_kafka_offset (topic,partitionNum,appName,current,fromOffset,untilOffset) VALUES "
 
     val sb = new StringBuilder
     offsetRanges.foreach(or => {
-      sb.append("(\"" + or.topic + "\"," + or.partition + ",1," + or.fromOffset + "," + or.untilOffset + "),")
+      sb.append(
+        "(\"" + or.topic + "\"," + or.partition + ",\"" + appName + "\",1," + or.fromOffset + "," + or.untilOffset + "),")
     })
 
     val sql = insertSql + sb.toString.substring(0, sb.length - 1)
@@ -179,7 +181,7 @@ class Kafka extends BaseStaticInput {
   def getTopicPartitions(topics: Set[String]): List[TopicPartition] =
     topics.flatMap(kafkaSource.get.value.getTopicPartition(_)).toList
 
-  def getBeginningOffsets(topics: Set[String]): util.Map[TopicPartition, lang.Long] = {
+  def getBeginningOffsets(topics: Set[String], appName: String): util.Map[TopicPartition, lang.Long] = {
 
     val topicPartitions = getTopicPartitions(topics)
 
@@ -206,7 +208,7 @@ class Kafka extends BaseStaticInput {
         // scalastyle:off
         val sql = "SELECT topic,partitionNum,untilOffset FROM tbl_wd_kafka_offset where topic in (\"" + config
           .getString("topics")
-          .replace(",", "\",\"") + "\") AND current = 1"
+          .replace(",", "\",\"") + "\") AND current = 1 AND appName = \"" + appName + "\""
         // scalastyle:on
         println(sql)
 
