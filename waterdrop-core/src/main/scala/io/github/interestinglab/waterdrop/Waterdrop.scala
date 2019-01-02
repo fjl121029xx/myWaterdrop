@@ -297,7 +297,7 @@ object Waterdrop extends Logging {
             println("[INFO] out put sum: " + ds.count)
           })
         }
-        input.afterBatch
+        input.afterBatch(sparkSession)
       }
     } else {
       throw new ConfigRuntimeException("Input must be configured at least once.")
