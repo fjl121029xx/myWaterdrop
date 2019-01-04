@@ -57,7 +57,7 @@ class Kafka extends BaseStaticInput {
 
     val defaultConfig = ConfigFactory.parseMap(
       Map(
-        "consumer.auto.offset.clereset" -> "earliest", //默认auto.offset.reset=earliest
+        "consumer.auto.offset.reset" -> "earliest", //默认auto.offset.reset=earliest
         "consumer.key.deserializer" -> "org.apache.kafka.common.serialization.StringDeserializer",
         "consumer.value.deserializer" -> "org.apache.kafka.common.serialization.StringDeserializer"
       )
