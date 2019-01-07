@@ -18,7 +18,8 @@ class Jdbc extends BaseStaticInput {
     val defaultConfig = ConfigFactory.parseMap(
       Map(
         "format" -> "json",
-        "driver" -> "com.mysql.jdbc.Driver"
+        "driver" -> "com.mysql.jdbc.Driver",
+        "query.table.exclude" -> ""
       )
     )
 
@@ -42,10 +43,10 @@ class Jdbc extends BaseStaticInput {
       case 0 =>
         config.getString("query.type") match {
           case "table" =>
-            if (config.hasPath("query.table") && !config.getString("query.table").isEmpty) {
+            if (config.hasPath("query.table.include") && !config.getString("query.table.include").isEmpty) {
               (true, "")
             } else {
-              (false, "please specify [query.table] as non-empty")
+              (false, "please specify [query.table.include] as non-empty")
             }
           case "sql" =>
             if (config.hasPath("query.sql") && !config.getString("query.sql").isEmpty) {
@@ -71,30 +72,55 @@ class Jdbc extends BaseStaticInput {
 
   override def getDataset(spark: SparkSession): Dataset[Row] = {
 
+    import spark.implicits._
+
     val format = config.getString("format")
     val reader = spark.read.format(format)
 
     showJdbcConf()
 
+    //get conf
     val host = config.getString("host")
     val database = config.getString("database")
     val url =
       s"jdbc:mysql://$host/$database?tinyInt1isBit=false&zeroDateTimeBehavior=convertToNull&autoReconnect=true&serverTimezone=Asia/Shanghai"
     val properties: Properties = getProperties
 
+    //get db tables
+    val getTables = (db: String, tableValue: String) => {
+      tableValue.endsWith("%") match {
+        case true => {
+          val sql =
+            s"( SELECT table_name FROM information_schema.tables WHERE table_schema = '$db' AND table_name like '$tableValue' ) t"
+          spark.read.jdbc(url, sql, properties).map(_.mkString).collect()
+        }
+        case false =>
+          tableValue.split(",")
+      }
+    }
+
     config.getString("query.type") match {
       case "table" =>
-        if (config.hasPath("query.where")) {
-          val queryArry = config.getStringList("query.where").map(_.toString).toArray
-          reader.jdbc(url, config.getString("query.table"), queryArry, properties)
-        } else {
-          reader.jdbc(url, config.getString("query.table"), properties)
-        }
+        getTables(database, config.getString("query.table.include"))
+          .filter(!config.getString("query.table.exclude").split(",").contains(_))
+          .map(table => {
+
+            println("[INFO] process table :" + table)
+
+            config.hasPath("query.where") match {
+              case true => {
+                val queryArry = config.getStringList("query.where").map(_.toString).toArray
+                reader.jdbc(url, table, queryArry, properties)
+              }
+              case false => reader.jdbc(url, table, properties)
+            }
+          })
+          .reduce(_ union _)
+
       case "sql" =>
         val sql = "(" + config.getString("query.sql") + ") t"
         reader.jdbc(url, sql, properties)
     }
-
   }
 
   def getProperties: Properties = {
