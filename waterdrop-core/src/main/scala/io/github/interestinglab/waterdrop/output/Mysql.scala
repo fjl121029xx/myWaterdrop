@@ -68,8 +68,6 @@ class Mysql extends BaseOutput {
     //get mysql table col with type
     val colWithType = mysqlWriter.value.getColWithDataType(config.getString("url").split("/").last, table)
 
-    println(s"column and type: $colWithType")
-
     //get sql field info
     val fields = colWithType.map(_._1)
     val strFields = colWithType.filter(tp => stringFields.contains(tp._2)).map(_._1)
