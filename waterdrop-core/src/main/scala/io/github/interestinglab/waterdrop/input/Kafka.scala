@@ -1,12 +1,12 @@
 package io.github.interestinglab.waterdrop.input
 
-import java.sql.{Connection, DriverManager}
-import java.{lang, util}
+import java.time.{LocalDateTime, ZoneId}
 import java.util.Properties
+import java.{lang, util}
 
 import com.typesafe.config.{Config, ConfigFactory}
 import io.github.interestinglab.waterdrop.apis.BaseStaticInput
-import org.apache.kafka.clients.consumer.KafkaConsumer
+import io.github.interestinglab.waterdrop.utils.{KafkaInputOffsetUtils, KafkaSource, Retryer}
 import org.apache.kafka.common.TopicPartition
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.sql.catalyst.encoders.RowEncoder
@@ -22,12 +22,15 @@ import scala.util.{Failure, Success, Try}
 class Kafka extends BaseStaticInput {
 
   var config: Config = ConfigFactory.empty()
+  var mysqlConf: Config = ConfigFactory.empty()
 
   var kafkaSource: Option[Broadcast[KafkaSource]] = None
   var offsetRanges: Option[Array[OffsetRange]] = None
 
   val consumerPrefix = "consumer"
   val mysqlPrefix = "mysql"
+
+  val MAX_RETRY_COUNT = 10
 
   override def setConfig(config: Config): Unit = {
     this.config = config
@@ -136,109 +139,50 @@ class Kafka extends BaseStaticInput {
 
     //save offset
     config.hasPath(mysqlPrefix) match {
-      case true => saveOffset(offsetRanges.get, spark.sparkContext.appName)
+      case true =>
+        Try(
+          new Retryer().execute(KafkaInputOffsetUtils
+            .saveOffset(mysqlConf, offsetRanges.get, spark.sparkContext.appName, config.getString("topics")))) match {
+          case Success(i) => println("[INFO] save offset done!")
+          case Failure(f) => println("[ERROR] save offset error: " + f.getMessage)
+        }
       case false => //do nothing
     }
   }
-
-  def saveOffset(offsetRanges: Array[OffsetRange], appName: String): Unit = {
-    val mysqlConf = config.getConfig(mysqlPrefix)
-    var conn: Connection = null
-
-    conn = DriverManager.getConnection(
-      mysqlConf.getString("jdbc"),
-      mysqlConf.getString("username"),
-      mysqlConf.getString("password"))
-    val statement = conn.createStatement
-
-    sys.addShutdownHook {
-      conn.close()
-      statement.close()
-    }
-
-    val updateSql = "UPDATE tbl_wd_kafka_offset SET current = 0 WHERE topic in (\"" + config
-      .getString("topics")
-      .replace(",", "\",\"") + "\") AND current = 1 AND appName = \"" + appName + "\""
-
-    val insertSql =
-      "INSERT INTO tbl_wd_kafka_offset (topic,partitionNum,appName,current,fromOffset,untilOffset) VALUES "
-
-    val sb = new StringBuilder
-    offsetRanges.foreach(or => {
-      sb.append(
-        "(\"" + or.topic + "\"," + or.partition + ",\"" + appName + "\",1," + or.fromOffset + "," + or.untilOffset + "),")
-    })
-
-    val sql = insertSql + sb.toString.substring(0, sb.length - 1)
-
-    println(updateSql)
-    println(sql)
-
-    statement.executeUpdate(updateSql)
-    statement.execute(sql)
-  }
-
-  def getTopicPartitions(topics: Set[String]): List[TopicPartition] =
-    topics.flatMap(kafkaSource.get.value.getTopicPartition(_)).toList
 
   def getBeginningOffsets(topics: Set[String], appName: String): util.Map[TopicPartition, lang.Long] = {
 
     val topicPartitions = getTopicPartitions(topics)
 
-    def getKafkaSourceOffset(topicPartitions: List[TopicPartition]) =
-      kafkaSource.get.value.getBeginningOffset(topicPartitions)
-
     //判断是否包含mysql配置
     config.hasPath(mysqlPrefix) match {
       case true => {
 
-        val mysqlConf = config.getConfig(mysqlPrefix)
-        var conn: Connection = null
+        mysqlConf = config.getConfig("mysql")
 
-        conn = DriverManager.getConnection(
-          mysqlConf.getString("jdbc"),
-          mysqlConf.getString("username"),
-          mysqlConf.getString("password"))
-        val statement = conn.createStatement
+        var tps = topicPartitions.to[ListBuffer]
 
-        sys.addShutdownHook {
-          conn.close()
-          statement.close()
+        val map = Try(
+          new Retryer().execute(KafkaInputOffsetUtils
+            .getOffset(mysqlConf, topicPartitions, appName, config.getString("topics")))) match {
+          case Success(map) => map.asInstanceOf[util.HashMap[TopicPartition, lang.Long]]
+          case Failure(f) => new util.HashMap[TopicPartition, lang.Long]()
         }
-        // scalastyle:off
-        val sql = "SELECT topic,partitionNum,untilOffset FROM tbl_wd_kafka_offset where topic in (\"" + config
-          .getString("topics")
-          .replace(",", "\",\"") + "\") AND current = 1 AND appName = \"" + appName + "\""
-        // scalastyle:on
-        println(sql)
 
-        Try(statement.executeQuery(sql)) match {
-          case Success(rss) => {
-
-            var tps = topicPartitions.to[ListBuffer]
-
-            val map = new util.HashMap[TopicPartition, lang.Long]()
-            while (rss.next) {
-              map.put(
-                new TopicPartition(rss.getString("topic"), rss.getInt("partitionNum")),
-                rss.getLong("untilOffset"))
-            }
-            map
-              .entrySet()
-              .foreach(entry => {
-                tps = tps.-(entry.getKey)
-              })
-            map.putAll(getKafkaSourceOffset(tps.toList))
-
-            map
-          }
-          case Failure(rsf) => {
-            throw new Exception(rsf.getMessage)
-          }
+        map
+          .entrySet()
+          .foreach(entry => {
+            tps = tps.-(entry.getKey)
+          })
+        //如mysql不包含的topic-partition信息或获取offset元数据失败 默认获取2小时前的offset
+        if (tps.length > 0) {
+          map.putAll(kafkaSource.get.value.getTimeOffset(tps.toList, getHourAgoTimeStamp(2)))
         }
+
+        map
       }
       case false => {
-        getKafkaSourceOffset(topicPartitions)
+        kafkaSource.get.value.getBeginningOffset(topicPartitions)
       }
     }
   }
@@ -253,45 +197,12 @@ class Kafka extends BaseStaticInput {
     println("[INFO] Kafka Range Sum :" + sum)
   }
 
-  class KafkaSource(createConsumer: () => KafkaConsumer[String, String]) extends Serializable {
+  val getTopicPartitions = (topics: Set[String]) => topics.flatMap(kafkaSource.get.value.getTopicPartition(_)).toList
 
-    lazy val consumer = createConsumer()
-
-    def getTopicPartition(topic: String): List[TopicPartition] = {
-      var list = new ListBuffer[TopicPartition]
-      consumer
-        .partitionsFor(topic)
-        .foreach(partitionInfo => {
-          list.append(new TopicPartition(topic, partitionInfo.partition()))
-        })
-      list.toList
-    }
-
-    def getBeginningOffset(topicPartitions: List[TopicPartition]): util.Map[TopicPartition, lang.Long] = {
-      consumer.beginningOffsets(topicPartitions)
-
-    }
-
-    def getEndOffset(topicPartitions: List[TopicPartition]): util.Map[TopicPartition, lang.Long] = {
-      consumer.endOffsets(topicPartitions)
-
-    }
-  }
-
-  object KafkaSource {
-    def apply(config: Properties): KafkaSource = {
-      val f = () => {
-        val consumer = new KafkaConsumer[String, String](config)
-
-        sys.addShutdownHook {
-          consumer.close()
-        }
-
-        consumer
-      }
-      new KafkaSource(f)
-    }
-
+  val getHourAgoTimeStamp = (hour: Int) => {
+    val zone = ZoneId.systemDefault()
+    val localDateTime = LocalDateTime.now().minusHours(hour)
+    localDateTime.atZone(zone).toInstant.toEpochMilli
   }
 
 }
