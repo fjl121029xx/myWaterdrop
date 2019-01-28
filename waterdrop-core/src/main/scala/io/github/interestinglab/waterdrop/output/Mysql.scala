@@ -1,10 +1,11 @@
 package io.github.interestinglab.waterdrop.output
 
-import java.sql.{DriverManager, Statement}
+import java.sql.{Connection, DriverManager, Statement}
 
 import com.alibaba.fastjson.JSON
 import com.typesafe.config.{Config, ConfigFactory}
 import io.github.interestinglab.waterdrop.apis.BaseOutput
+import io.github.interestinglab.waterdrop.utils.Retryer
 import org.apache.spark.sql.{Dataset, Row, SparkSession}
 
 import scala.collection.JavaConversions._
@@ -133,7 +134,7 @@ class Mysql extends BaseOutput {
 
           val upsert = sqlPrefix + sb.toString.substring(0, sb.length() - 1)
 
-          mysqlWriter.value.upsert(upsert)
+          new Retryer().execute(mysqlWriter.value.upsert(upsert))
 
           i = 0
           sb.delete(0, sb.length())
@@ -183,7 +184,7 @@ object MysqlWriter {
 
     val f = () => {
 
-      val conn = DriverManager.getConnection(jdbc, username, password)
+      val conn = new Retryer().execute(DriverManager.getConnection(jdbc, username, password)).asInstanceOf[Connection]
       val statement = conn.createStatement()
 
       sys.addShutdownHook {
