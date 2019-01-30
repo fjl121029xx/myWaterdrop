@@ -116,7 +116,14 @@ class Hive extends BaseOutput {
             // get column value string and replace '\u0001', '\n' to space
             val colStr = row.get(col_index.get) match {
               case null => "\\N"
-              case _ => row.get(col_index.get).toString.replaceAll("\u0001", " ").replaceAll("\n", " ")
+              case _ =>
+                row
+                  .get(col_index.get)
+                  .toString
+                  .replaceAll("\u0001", " ")
+                  .replaceAll("\n", " ")
+                  .replaceAll("\r", " ")
+                  .replaceAll("\r\n", " ")
             }
             sb.append(colStr)
           } else {
