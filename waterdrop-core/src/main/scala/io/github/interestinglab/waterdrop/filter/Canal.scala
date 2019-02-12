@@ -77,6 +77,8 @@ class Canal extends BaseFilter {
   //extract and put fields from json string
   private def canalFieldsExtract(it: Iterator[String]): Iterator[String] = {
 
+    var id = 0L //顺序数
+
     it.map(row => {
 
       val rowJ = JSON.parseObject(row)
@@ -84,13 +86,16 @@ class Canal extends BaseFilter {
 
       conf.getBoolean("canal.field.include") match {
         case true => {
+          val sec = System.currentTimeMillis() / 1000
+          val mActionTime = f"$sec$id%08d".toLong
           source.put("mDatabaseName", rowJ.getString(DATABASE_NAME))
           source.put("mTableName", rowJ.getString(TABLE_NAME))
           source.put("mActionType", rowJ.getString(ACTION_TYPE))
-          source.put("mActionTime", System.nanoTime())
+          source.put("mActionTime", mActionTime)
         }
         case false => //do nothing
       }
+      id += 1L
       source.toJSONString
     })
   }
