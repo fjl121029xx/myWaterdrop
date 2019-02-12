@@ -86,8 +86,8 @@ class Canal extends BaseFilter {
 
       conf.getBoolean("canal.field.include") match {
         case true => {
-          val millis = System.currentTimeMillis()
-          val mActionTime = f"$millis$id%08d".toLong
+          val sec = System.currentTimeMillis() / 1000
+          val mActionTime = f"$sec$id%08d".toLong
           source.put("mDatabaseName", rowJ.getString(DATABASE_NAME))
           source.put("mTableName", rowJ.getString(TABLE_NAME))
           source.put("mActionType", rowJ.getString(ACTION_TYPE))
