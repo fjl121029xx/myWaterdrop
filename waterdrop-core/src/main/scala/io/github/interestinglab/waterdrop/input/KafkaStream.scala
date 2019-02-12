@@ -2,6 +2,7 @@ package io.github.interestinglab.waterdrop.input
 
 import com.typesafe.config.{Config, ConfigFactory}
 import io.github.interestinglab.waterdrop.apis.BaseStreamingInput
+import org.apache.spark.sql.SparkSession
 import org.apache.spark.streaming.StreamingContext
 import org.apache.spark.streaming.dstream.DStream
 import org.apache.spark.streaming.kafka010.ConsumerStrategies.Subscribe
@@ -45,6 +46,18 @@ class KafkaStream extends BaseStreamingInput {
       }
       case false => (false, "please specify [topics] as non-empty string, multiple topics separated by \",\"")
     }
+  }
+
+  override def prepare(spark: SparkSession): Unit = {
+    super.prepare(spark)
+
+    val defaultConfig = ConfigFactory.parseMap(
+      Map(
+        "consumer.key.deserializer" -> "org.apache.kafka.common.serialization.StringDeserializer",
+        "consumer.value.deserializer" -> "org.apache.kafka.common.serialization.StringDeserializer"
+      )
+    )
+    config = config.withFallback(defaultConfig)
   }
 
   override def getDStream(ssc: StreamingContext): DStream[(String, String)] = {

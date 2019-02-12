@@ -4,6 +4,7 @@ import com.typesafe.config.{Config, ConfigFactory}
 import io.github.interestinglab.waterdrop.apis.BaseOutput
 import io.github.interestinglab.waterdrop.utils.StringTemplate
 import org.apache.spark.sql._
+import org.apache.spark.sql.functions.{col, concat, lit}
 import org.elasticsearch.spark.sql._
 
 import scala.collection.JavaConversions._
@@ -48,7 +49,9 @@ class Elasticsearch extends BaseOutput {
       Map(
         "index" -> "waterdrop",
         "index_type" -> "log",
-        "index_time_format" -> "yyyy.MM.dd"
+        "index_time_format" -> "yyyy.MM.dd",
+        "es.mapping.id" -> "waterdrop_es_mapping_id",
+        "es.ingest.pipeline" -> "waterdrop_remove"
       )
     )
     config = config.withFallback(defaultConfig)
@@ -66,7 +69,40 @@ class Elasticsearch extends BaseOutput {
   }
 
   override def process(df: Dataset[Row]): Unit = {
-    val index = StringTemplate.substitute(config.getString("index"), config.getString("index_time_format"))
-    df.saveToEs(index + "/" + config.getString("index_type"), this.esCfg)
+
+    //judge make id
+    val dfwithid = config.hasPath("index_id") match {
+      case true => {
+        val cols = config
+          .getString("index_id")
+          .split(",")
+          .map(filed => {
+            if (filed.startsWith("$")) col(filed.substring(1, filed.length)) else lit(filed)
+          })
+        df.withColumn("waterdrop_es_mapping_id", concat(cols: _*))
+      }
+      case false => df
+    }
+
+    //judge has index suffix
+    val (index, dff) = config.hasPath("index_suffix") match {
+      case true => {
+        val suffixes = config.getString("index_suffix").split(":")
+        val indexName = config.getString("index") + "{waterdrop_es_index_suffix}"
+        val dfwithSuffix = suffixes.length match {
+          case 1 => dfwithid.withColumn("waterdrop_es_index_suffix", col(suffixes.apply(0)))
+          case 3 =>
+            dfwithid.withColumn(
+              "waterdrop_es_index_suffix",
+              col(suffixes.apply(0)).substr(suffixes.apply(1).toInt, suffixes.apply(2).toInt))
+        }
+        (indexName, dfwithSuffix)
+      }
+      case false =>
+        (StringTemplate.substitute(config.getString("index"), config.getString("index_time_format")), dfwithid)
+    }
+
+    //save to es
+    dff.saveToEs(index + "/" + config.getString("index_type"), this.esCfg)
   }
 }

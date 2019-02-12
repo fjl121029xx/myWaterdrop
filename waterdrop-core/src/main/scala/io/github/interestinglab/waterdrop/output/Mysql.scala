@@ -1,9 +1,11 @@
 package io.github.interestinglab.waterdrop.output
 
-import java.sql.{DriverManager, Statement}
+import java.sql.{Connection, DriverManager, Statement}
 
+import com.alibaba.fastjson.JSON
 import com.typesafe.config.{Config, ConfigFactory}
 import io.github.interestinglab.waterdrop.apis.BaseOutput
+import io.github.interestinglab.waterdrop.utils.Retryer
 import org.apache.spark.sql.{Dataset, Row, SparkSession}
 
 import scala.collection.JavaConversions._
@@ -56,7 +58,7 @@ class Mysql extends BaseOutput {
     val schemeFields = df.schema.fieldNames.toList
 
     //sql fields type
-    val stringFields = List("varchar", "timestamp", "datetime")
+    val stringFields = List("varchar", "timestamp", "datetime", "text")
     val dateFields = List("timestamp", "datetime")
     val table = config.getString("table")
 
@@ -65,7 +67,7 @@ class Mysql extends BaseOutput {
       .broadcast(MysqlWriter(config.getString("url"), config.getString("username"), config.getString("password")))
 
     //get mysql table col with type
-    val colWithType = mysqlWriter.value.getColWithDataType(table)
+    val colWithType = mysqlWriter.value.getColWithDataType(config.getString("url").split("/").last, table)
 
     //get sql field info
     val fields = colWithType.map(_._1)
@@ -86,31 +88,28 @@ class Mysql extends BaseOutput {
 
     val sqlPrefix = s"${config.getString("insert.mode")} INTO $table ($fieldStr) VALUES "
 
-    df.foreachPartition(it => {
+    df.toJSON.foreachPartition(it => {
       var i = 0
       val sb = new StringBuffer
       while (it.hasNext) {
 
-        val nextMap: Map[String, Any] = config.getBoolean("row.column.toLower") match {
-          case true => it.next.getValuesMap(filterFields.map(_.toLowerCase))
-          case false => it.next.getValuesMap(filterFields)
-        }
+        sb.append(s"(")
 
-        sb.append(s"(");
+        val next = JSON.parseObject(it.next)
+
         filterFields.foreach(field => {
 
           schemeFields.contains(field) || schemeFields.contains(field.toLowerCase) match {
             case true => {
 
-              val rowFieldValue = nextMap.get(getRowField(field)).get
-
-              strFields.contains(field) && rowFieldValue != null match {
+              strFields.contains(field) match {
                 case true => {
 
-                  val value = (nextMap.contains(getRowField(field))) match {
+                  val value = (next.contains(getRowField(field))) match {
                     case true =>
                       sb.append(
-                        "\"" + rowFieldValue.toString
+                        "\"" + next
+                          .getString(getRowField(field))
                           .replace("\\", "\\\\")
                           .replace("\"", "\\\"") + "\"")
                     case false => sb.append("\"\"")
@@ -120,7 +119,7 @@ class Mysql extends BaseOutput {
                     sb.append("\"2000-01-01 01:01:01\"")
                   }
                 }
-                case false => sb.append(rowFieldValue)
+                case false => sb.append(next.get(field))
               }
               if (!fieldStr.endsWith(field)) sb.append(",")
             }
@@ -135,7 +134,7 @@ class Mysql extends BaseOutput {
 
           val upsert = sqlPrefix + sb.toString.substring(0, sb.length() - 1)
 
-          mysqlWriter.value.upsert(upsert)
+          new Retryer().execute(mysqlWriter.value.upsert(upsert))
 
           i = 0
           sb.delete(0, sb.length())
@@ -153,9 +152,11 @@ class MysqlWriter(createWriter: () => Statement) extends Serializable {
 
   lazy val writer = createWriter()
 
-  def getColWithDataType(tableName: String): List[Tuple2[String, String]] = {
+  def getColWithDataType(dbName: String, tableName: String): List[Tuple2[String, String]] = {
 
-    val schemaSql = s"SELECT COLUMN_NAME,DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE table_name = '$tableName'"
+    val schemaSql =
+      s"SELECT COLUMN_NAME,DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE table_name = '$tableName' AND table_schema = '${dbName}'"
+
     val rs = writer.executeQuery(schemaSql)
 
     val lb = new ListBuffer[Tuple2[String, String]]
@@ -183,7 +184,7 @@ object MysqlWriter {
 
     val f = () => {
 
-      val conn = DriverManager.getConnection(jdbc, username, password)
+      val conn = new Retryer().execute(DriverManager.getConnection(jdbc, username, password)).asInstanceOf[Connection]
       val statement = conn.createStatement()
 
       sys.addShutdownHook {

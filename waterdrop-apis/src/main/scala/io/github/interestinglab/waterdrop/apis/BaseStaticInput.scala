@@ -15,5 +15,5 @@ abstract class BaseStaticInput extends Plugin {
   /**
    * job done dosomething
    * */
-  def afterBatch:Unit={}
+  def afterBatch(spark: SparkSession):Unit={}
 }
