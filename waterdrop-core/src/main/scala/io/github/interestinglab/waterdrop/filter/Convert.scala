@@ -2,9 +2,9 @@ package io.github.interestinglab.waterdrop.filter
 
 import com.typesafe.config.{Config, ConfigFactory}
 import io.github.interestinglab.waterdrop.apis.BaseFilter
-import org.apache.spark.sql.{Column, Dataset, Row, SparkSession}
-import org.apache.spark.sql.types._
 import org.apache.spark.sql.functions.{col, concat, lit}
+import org.apache.spark.sql.types._
+import org.apache.spark.sql.{Dataset, Row, SparkSession}
 
 import scala.collection.JavaConversions._
 
