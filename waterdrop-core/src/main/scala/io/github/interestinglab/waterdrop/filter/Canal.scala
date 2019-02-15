@@ -1,6 +1,6 @@
 package io.github.interestinglab.waterdrop.filter
 
-import com.alibaba.fastjson.JSON
+import com.alibaba.fastjson.{JSON, JSONObject}
 import com.typesafe.config.{Config, ConfigFactory}
 import io.github.interestinglab.waterdrop.apis.BaseFilter
 import org.apache.spark.sql.{Dataset, Row, SparkSession}
@@ -82,7 +82,7 @@ class Canal extends BaseFilter {
     it.map(row => {
 
       val rowJ = JSON.parseObject(row)
-      val source = rowJ.getJSONObject(SOURCE_FIELD)
+      val source: JSONObject = new JSONObject(true)
 
       conf.getBoolean("canal.field.include") match {
         case true => {
@@ -95,6 +95,7 @@ class Canal extends BaseFilter {
         }
         case false => //do nothing
       }
+      source.fluentPutAll(rowJ.getJSONObject(SOURCE_FIELD))
       id += 1L
       source.toJSONString
     })
