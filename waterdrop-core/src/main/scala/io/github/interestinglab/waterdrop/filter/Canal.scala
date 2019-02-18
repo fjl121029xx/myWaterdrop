@@ -82,7 +82,7 @@ class Canal extends BaseFilter {
     it.map(row => {
 
       val rowJ = JSON.parseObject(row)
-      val source: JSONObject = new JSONObject(true)
+      val source = rowJ.getJSONObject(SOURCE_FIELD)
 
       conf.getBoolean("canal.field.include") match {
         case true => {
@@ -95,7 +95,6 @@ class Canal extends BaseFilter {
         }
         case false => //do nothing
       }
-      source.fluentPutAll(rowJ.getJSONObject(SOURCE_FIELD))
       id += 1L
       source.toJSONString
     })
