@@ -166,7 +166,8 @@ class Kafka extends BaseStaticInput {
           new Retryer().execute(KafkaInputOffsetUtils
             .getOffset(mysqlConf, topicPartitions, appName, config.getString("topics")))) match {
           case Success(map) => map.asInstanceOf[util.HashMap[TopicPartition, lang.Long]]
-          case Failure(f) => new util.HashMap[TopicPartition, lang.Long]()
+//          case Failure(f) => new util.HashMap[TopicPartition, lang.Long]()
+          case Failure(f) => new util.HashMap[TopicPartition, lang.Long](kafkaSource.get.value.getTimeOffset(tps.toList, getHourAgoTimeStamp(2)))
         }
 
         map
@@ -176,7 +177,8 @@ class Kafka extends BaseStaticInput {
           })
         //如mysql不包含的topic-partition信息或获取offset元数据失败 默认获取2小时前的offset
         if (tps.length > 0) {
-          map.putAll(kafkaSource.get.value.getTimeOffset(tps.toList, getHourAgoTimeStamp(2)))
+//          map.putAll(kafkaSource.get.value.getTimeOffset(tps.toList, getHourAgoTimeStamp(2)))
+          map.putAll(kafkaSource.get.value.getBeginningOffset(topicPartitions))
         }
 
         map
