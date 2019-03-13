@@ -58,7 +58,7 @@ class Mysql extends BaseOutput {
     val schemeFields = df.schema.fieldNames.toList
 
     //sql fields type
-    val stringFields = List("varchar", "timestamp", "datetime", "text")
+    val stringFields = List("varchar", "timestamp", "datetime", "text", "varbinary", "longtext")
     val dateFields = List("timestamp", "datetime")
     val table = config.getString("table")
 
