@@ -1,17 +1,19 @@
 package io.github.interestinglab.waterdrop.output
 
-import java.sql.{Connection, DriverManager, Statement}
-
-import com.alibaba.fastjson.JSON
 import com.typesafe.config.{Config, ConfigFactory}
 import io.github.interestinglab.waterdrop.apis.BaseOutput
-import io.github.interestinglab.waterdrop.utils.Retryer
+import io.github.interestinglab.waterdrop.utils.{MysqlWriter, Retryer}
 import org.apache.spark.sql.{Dataset, Row, SparkSession}
 
 import scala.collection.JavaConversions._
-import scala.collection.mutable.ListBuffer
 
 class Mysql extends BaseOutput {
+
+  //sql fields type
+  val stringFields = List("varchar", "timestamp", "datetime", "text", "varbinary", "longtext")
+  val dateFields = List("timestamp", "datetime")
+
+  var schemeFields, filterFields, strFields, timeStampFields = List.empty[String]
 
   var config: Config = ConfigFactory.empty()
 
@@ -54,12 +56,10 @@ class Mysql extends BaseOutput {
 
   override def process(df: Dataset[Row]): Unit = {
 
-    //df schema fields
-    val schemeFields = df.schema.fieldNames.toList
+    val dfFill = df.na.fill("").na.fill(0L).na.fill(0).na.fill(0.0)
 
-    //sql fields type
-    val stringFields = List("varchar", "timestamp", "datetime", "text", "varbinary", "longtext")
-    val dateFields = List("timestamp", "datetime")
+    //df schema fields
+    schemeFields = dfFill.schema.fieldNames.toList
     val table = config.getString("table")
 
     // mysql mysql connect
@@ -71,128 +71,69 @@ class Mysql extends BaseOutput {
 
     //get sql field info
     val fields = colWithType.map(_._1)
-    val strFields = colWithType.filter(tp => stringFields.contains(tp._2)).map(_._1)
-    val timeStampFields = list2String(colWithType.filter(tp => dateFields.contains(tp._2)).map(_._1))
+    strFields = colWithType.filter(tp => stringFields.contains(tp._2)).map(_._1)
+    timeStampFields = colWithType.filter(tp => dateFields.contains(tp._2)).map(_._1)
 
     //df schema intersect sql col
-    val filterFields = fields
-      .map(field => {
-        schemeFields.contains(field) || schemeFields.contains(field.toLowerCase) match {
-          case true => field
-          case false => ""
-        }
-      })
-      .filter(!_.equals(""))
+    filterFields = fields.map(field => {
+      containsIgnoreCase(schemeFields, field) match {
+        case true => field
+        case false => ""
+      }
+    }).filter(!_.equals(""))
 
-    val fieldStr = list2String(filterFields)
+    val sum = dfFill.sparkSession.sparkContext.longAccumulator
 
-    val sqlPrefix = s"${config.getString("insert.mode")} INTO $table ($fieldStr) VALUES "
 
-    df.toJSON.foreachPartition(it => {
+    val sqlPrefix = s"${config.getString("insert.mode")} INTO $table (${list2String(filterFields)}) VALUES "
+
+    dfFill.foreachPartition(it => {
       var i = 0
       val sb = new StringBuffer
       while (it.hasNext) {
-
         sb.append(s"(")
-
-        val next = JSON.parseObject(it.next)
-
-        filterFields.foreach(field => {
-
-          schemeFields.contains(field) || schemeFields.contains(field.toLowerCase) match {
-            case true => {
-
-              strFields.contains(field) match {
-                case true => {
-
-                  val value = (next.contains(getRowField(field))) match {
-                    case true =>
-                      sb.append(
-                        "\"" + next
-                          .getString(getRowField(field))
-                          .replace("\\", "\\\\")
-                          .replace("\"", "\\\"") + "\"")
-                    case false => sb.append("\"\"")
-                  }
-
-                  if (timeStampFields.contains(field) && "".equals(value)) {
-                    sb.append("\"2000-01-01 01:01:01\"")
-                  }
-                }
-                case false => sb.append(next.get(field))
-              }
-              if (!fieldStr.endsWith(field)) sb.append(",")
-            }
-            case false => //do nothing
-          }
-        })
-
+        addSqlRow(sb, it.next())
         sb.append("),")
         i = i + 1
 
         if (i == config.getInt("batch.count") || (!it.hasNext)) {
-
-          val upsert = sqlPrefix + sb.toString.substring(0, sb.length() - 1)
-
-          new Retryer().execute(mysqlWriter.value.upsert(upsert))
+          //写入mysql
+          new Retryer().execute(mysqlWriter.value.upsert(sqlPrefix + sb.toString.substring(0, sb.length() - 1)))
+          sum.add(i)
 
           i = 0
           sb.delete(0, sb.length())
         }
       }
     })
+
+    println("[INFO] mysql out put: " + sum.value)
   }
 
-  private def getRowField(field: String) = if (config.getBoolean("row.column.toLower")) field.toLowerCase else field
+  private val containsIgnoreCase = (schemeFields: List[String], field: String) => schemeFields.contains(field) || schemeFields.contains(field.toLowerCase)
 
-  private def list2String(list: List[String]) = list.toString.substring(5, list.toString.length - 1).replace(" ", "")
-}
+  private val getRowField = (field: String) => if (config.getBoolean("row.column.toLower")) field.toLowerCase else field
 
-class MysqlWriter(createWriter: () => Statement) extends Serializable {
+  private val list2String = (list: List[String]) => list.toString.substring(5, list.toString.length - 1).replace(" ", "")
 
-  lazy val writer = createWriter()
-
-  def getColWithDataType(dbName: String, tableName: String): List[Tuple2[String, String]] = {
-
-    val schemaSql =
-      s"SELECT COLUMN_NAME,DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE table_name = '$tableName' AND table_schema = '${dbName}'"
-
-    val rs = writer.executeQuery(schemaSql)
-
-    val lb = new ListBuffer[Tuple2[String, String]]
-
-    while (rs.next()) {
-      lb.append((rs.getString(1), rs.getString(2)))
-    }
-    lb.toList
-  }
-
-  def upsert(sql: String): Unit = {
-    try {
-      writer.executeUpdate(sql)
-    } catch {
-      case ex: Exception =>
-        println(sql)
-        throw ex
-    }
-  }
-}
-
-object MysqlWriter {
-
-  def apply(jdbc: String, username: String, password: String): MysqlWriter = {
-
-    val f = () => {
-
-      val conn = new Retryer().execute(DriverManager.getConnection(jdbc, username, password)).asInstanceOf[Connection]
-      val statement = conn.createStatement()
-
-      sys.addShutdownHook {
-        conn.close()
-        statement.close()
+  private def addSqlRow(sb: StringBuffer, next: Row): Unit = {
+    filterFields.foreach(field => {
+      containsIgnoreCase(schemeFields, field) match {
+        case true => strFields.contains(field) match {
+          case true => val value = schemeFields.contains(getRowField(field)) match {
+            case true => sb.append("\"" + next.getAs(getRowField(field)).toString.replace("\\", "\\\\").replace("\"", "\\\"").replace("\'", "\\'") + "\"")
+            case false => sb.append("\"\"")
+          } // 时间戳字段 空值处理
+            if (timeStampFields.contains(field) && "".equals(value)) {
+              sb.append("\"2000-01-01 01:01:01\"")
+            }
+          case false => sb.append(next.getAs(field).toString)
+        }
+          if (!filterFields.last.equals(field)) sb.append(",")
+        case false => //do nothing
       }
-      statement
-    }
-    new MysqlWriter(f)
+    })
   }
+
+
 }
