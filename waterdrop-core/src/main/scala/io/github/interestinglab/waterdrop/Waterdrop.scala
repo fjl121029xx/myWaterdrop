@@ -5,15 +5,20 @@ import java.io.File
 import io.github.interestinglab.waterdrop.apis.{BaseFilter, BaseOutput, BaseStaticInput, BaseStreamingInput}
 import io.github.interestinglab.waterdrop.config._
 import io.github.interestinglab.waterdrop.filter.UdfRegister
-import io.github.interestinglab.waterdrop.utils.{AsciiArt, CompressionUtils}
+import io.github.interestinglab.waterdrop.utils.AsciiArt
 import org.apache.commons.lang3.exception.ExceptionUtils
 import org.apache.hadoop.fs.Path
-import org.apache.spark.SparkConf
+import org.apache.http.client.methods.HttpPost
+import org.apache.http.entity.StringEntity
+import org.apache.http.impl.client.HttpClients
+import org.apache.http.protocol.HTTP
 import org.apache.spark.internal.Logging
+import org.apache.spark.scheduler.{SparkListener, SparkListenerTaskEnd}
 import org.apache.spark.sql.catalyst.encoders.RowEncoder
 import org.apache.spark.sql.types.{DataTypes, StructType}
 import org.apache.spark.sql.{Row, SparkSession}
 import org.apache.spark.streaming._
+import org.apache.spark.{SparkConf, SparkContext}
 
 import scala.collection.JavaConversions._
 import scala.util.{Failure, Success, Try}
@@ -133,22 +138,22 @@ object Waterdrop extends Logging {
           // decompress plugin dir
           val compressedFile = new File("plugins.tar.gz")
 
-          Try(CompressionUtils.unGzip(compressedFile, workDir)) match {
-            case Success(tempFile) => {
-              Try(CompressionUtils.unTar(tempFile, workDir)) match {
-                case Success(_) => logInfo("succeeded to decompress plugins.tar.gz")
-                case Failure(ex) => {
-                  logError("failed to decompress plugins.tar.gz", ex)
-                  sys.exit(-1)
-                }
-              }
-
-            }
-            case Failure(ex) => {
-              logError("failed to decompress plugins.tar.gz", ex)
-              sys.exit(-1)
-            }
-          }
+          //          Try(CompressionUtils.unGzip(compressedFile, workDir)) match {
+          //            case Success(tempFile) => {
+          //              Try(CompressionUtils.unTar(tempFile, workDir)) match {
+          //                case Success(_) => logInfo("succeeded to decompress plugins.tar.gz")
+          //                case Failure(ex) => {
+          //                  logError("failed to decompress plugins.tar.gz", ex)
+          //                  sys.exit(-1)
+          //                }
+          //              }
+          //
+          //            }
+          //            case Failure(ex) => {
+          //              logError("failed to decompress plugins.tar.gz", ex)
+          //              sys.exit(-1)
+          //            }
+          //          }
         }
       }
     }
@@ -177,7 +182,37 @@ object Waterdrop extends Logging {
 
     streamingInputs.size match {
       case 0 => {
+
+        var inputRecords = 0L
+        var inputBytes = 0L
+        var outputWritten = 0L
+        var outputBytes = 0L
+
+        sparkSession.sparkContext.addSparkListener(new SparkListener() {
+          override def onTaskEnd(taskEnd: SparkListenerTaskEnd) {
+            val metrics = taskEnd.taskMetrics
+            if (metrics.inputMetrics != None) {
+              println("[DEBUG] metrics input: " + metrics.inputMetrics.recordsRead)
+              inputRecords += metrics.inputMetrics.recordsRead
+              inputBytes += metrics.inputMetrics.bytesRead
+            }
+            if (metrics.outputMetrics != None) {
+              println("[DEBUG] metrics output: " + metrics.outputMetrics.recordsWritten)
+              outputWritten += metrics.outputMetrics.recordsWritten
+              outputBytes += metrics.outputMetrics.bytesWritten
+            }
+          }
+        })
+
         batchProcessing(sparkSession, configBuilder, staticInputs, filters, outputs)
+
+        //write metrics to influxdb
+        write2Influx(sparkSession.sparkContext, inputRecords, inputBytes, outputWritten, outputBytes)
+
+        println("[INFO] input record size: " + inputRecords)
+        println("[INFO] input byte size: " + inputBytes)
+        println("[INFO] output write size: " + outputWritten)
+        println("[INFO] output byte size: " + outputBytes)
       }
       case _ => {
         streamingProcessing(sparkSession, configBuilder, staticInputs, streamingInputs, filters, outputs)
@@ -286,15 +321,12 @@ object Waterdrop extends Logging {
     if (staticInputs.nonEmpty) {
       for (input <- staticInputs) {
         var ds = input.getDataset(sparkSession)
-        println(s"[INFO] input ${input.getClass.getSimpleName} done!!!")
         if (ds.columns.length > 0) {
           for (f <- filters) {
             ds = f.process(sparkSession, ds)
-            println(s"[INFO] filter ${f.getClass.getSimpleName} done!!!")
           }
           outputs.foreach(p => {
             p.process(ds)
-            println("[INFO] out put sum: " + ds.count)
           })
         }
         input.afterBatch(sparkSession)
@@ -348,4 +380,32 @@ object Waterdrop extends Logging {
 
     sparkConf
   }
+
+  private def write2Influx(
+    sc: SparkContext,
+    inputRecords: Long,
+    inputBytes: Long,
+    outputWritten: Long,
+    outputBytes: Long): Unit = {
+
+    val httpclient = HttpClients.createDefault
+
+    val url = "http://192.168.22.63:8086/write?db=waterdrop_batch"
+    val httpPost = new HttpPost(url){{
+      addHeader(HTTP.CONTENT_TYPE, "BINARY")
+    }}
+
+    val tags = s"appId=${sc.applicationId},appName=${sc.appName}," +
+      s"user=${sc.sparkUser},startTime=${sc.startTime},endTime=${System.currentTimeMillis}"
+    val fields = s"inputRecords=${inputRecords},inputBytes=${inputBytes},outputWritten=${outputWritten},outputBytes=${outputBytes}"
+    val text = s"waterdrop_report,${tags} ${fields}"
+    println("[INFO] influx data:" + text)
+
+    httpPost.setEntity(new StringEntity(text))
+    val response = httpclient.execute(httpPost)
+
+    println("[INFO] write 2 influxdb response:\n" + response)
+
+  }
+
 }
