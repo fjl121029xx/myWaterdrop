@@ -1,7 +1,5 @@
 package io.github.interestinglab.waterdrop
 
-import java.io.File
-
 import io.github.interestinglab.waterdrop.apis.{BaseFilter, BaseOutput, BaseStaticInput, BaseStreamingInput}
 import io.github.interestinglab.waterdrop.config._
 import io.github.interestinglab.waterdrop.filter.UdfRegister
@@ -24,6 +22,11 @@ import scala.collection.JavaConversions._
 import scala.util.{Failure, Success, Try}
 
 object Waterdrop extends Logging {
+
+  var inputRecords = 0L
+  var inputBytes = 0L
+  var outputWritten = 0L
+  var outputBytes = 0L
 
   def main(args: Array[String]) {
 
@@ -123,41 +126,6 @@ object Waterdrop extends Logging {
       System.exit(-1) // invalid configuration
     }
 
-    Common.getDeployMode match {
-      case Some(m) => {
-        if (m.equals("cluster")) {
-
-          logInfo("preparing cluster mode work dir files...")
-
-          // plugins.tar.gz is added in local app temp dir of driver and executors in cluster mode from --files specified in spark-submit
-          val workDir = new File(".")
-          logWarning("work dir exists: " + workDir.exists() + ", is dir: " + workDir.isDirectory)
-
-          workDir.listFiles().foreach(f => logWarning("\t list file: " + f.getAbsolutePath))
-
-          // decompress plugin dir
-          val compressedFile = new File("plugins.tar.gz")
-
-          //          Try(CompressionUtils.unGzip(compressedFile, workDir)) match {
-          //            case Success(tempFile) => {
-          //              Try(CompressionUtils.unTar(tempFile, workDir)) match {
-          //                case Success(_) => logInfo("succeeded to decompress plugins.tar.gz")
-          //                case Failure(ex) => {
-          //                  logError("failed to decompress plugins.tar.gz", ex)
-          //                  sys.exit(-1)
-          //                }
-          //              }
-          //
-          //            }
-          //            case Failure(ex) => {
-          //              logError("failed to decompress plugins.tar.gz", ex)
-          //              sys.exit(-1)
-          //            }
-          //          }
-        }
-      }
-    }
-
     process(configBuilder, staticInputs, streamingInputs, filters, outputs)
   }
 
@@ -182,11 +150,6 @@ object Waterdrop extends Logging {
 
     streamingInputs.size match {
       case 0 => {
-
-        var inputRecords = 0L
-        var inputBytes = 0L
-        var outputWritten = 0L
-        var outputBytes = 0L
 
         sparkSession.sparkContext.addSparkListener(new SparkListener() {
           override def onTaskEnd(taskEnd: SparkListenerTaskEnd) {
@@ -269,7 +232,6 @@ object Waterdrop extends Logging {
 
       // For implicit conversions like converting RDDs to DataFrames
 
-      //      val schema = StructType(Array(StructField("raw_message", StringType)))
       val schema = new StructType().add("raw_message", DataTypes.StringType)
       val encoder = RowEncoder(schema)
       var ds = sparkSession.createDataset(rowsRDD)(encoder)

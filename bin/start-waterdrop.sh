@@ -88,7 +88,7 @@ if [ "$DEPLOY_MODE" == "cluster" ]; then
     FilesDepOpts="--files ${CONFIG_FILE}"
 
     ## add plugin files
-    FilesDepOpts="${FilesDepOpts},${APP_DIR}/plugins.tar.gz"
+    #FilesDepOpts="${FilesDepOpts},${APP_DIR}/plugins.tar.gz"
 
     ## add kafka sasl conf
     FilesDepOpts="${FilesDepOpts},${CONF_DIR}/kafka_client_jaas.conf"

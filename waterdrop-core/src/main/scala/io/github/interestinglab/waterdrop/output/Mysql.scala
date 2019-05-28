@@ -1,6 +1,7 @@
 package io.github.interestinglab.waterdrop.output
 
 import com.typesafe.config.{Config, ConfigFactory}
+import io.github.interestinglab.waterdrop.Waterdrop
 import io.github.interestinglab.waterdrop.apis.BaseOutput
 import io.github.interestinglab.waterdrop.utils.{MysqlWriter, Retryer}
 import org.apache.spark.sql.{Dataset, Row, SparkSession}
@@ -56,7 +57,8 @@ class Mysql extends BaseOutput {
 
   override def process(df: Dataset[Row]): Unit = {
 
-    val dfFill = df.na.fill("").na.fill(0L).na.fill(0).na.fill(0.0)
+//    val dfFill = df.na.fill("").na.fill(0L).na.fill(0).na.fill(0.0)
+    val dfFill = df
 
     //df schema fields
     schemeFields = dfFill.schema.fieldNames.toList
@@ -84,8 +86,7 @@ class Mysql extends BaseOutput {
 
     val sum = dfFill.sparkSession.sparkContext.longAccumulator
 
-
-    val sqlPrefix = s"${config.getString("insert.mode")} INTO $table (${list2String(filterFields)}) VALUES "
+    val sqlPrefix = s"${config.getString("insert.mode")} INTO $table ${filterFields.mkString("(",",",")")} VALUES "
 
     dfFill.foreachPartition(it => {
       var i = 0
@@ -108,13 +109,14 @@ class Mysql extends BaseOutput {
     })
 
     println("[INFO] mysql out put: " + sum.value)
+
+    if (Waterdrop.outputWritten == 0) Waterdrop.outputWritten = sum.value
   }
 
   private val containsIgnoreCase = (schemeFields: List[String], field: String) => schemeFields.contains(field) || schemeFields.contains(field.toLowerCase)
 
   private val getRowField = (field: String) => if (config.getBoolean("row.column.toLower")) field.toLowerCase else field
 
-  private val list2String = (list: List[String]) => list.toString.substring(5, list.toString.length - 1).replace(" ", "")
 
   private def addSqlRow(sb: StringBuffer, next: Row): Unit = {
     filterFields.foreach(field => {
