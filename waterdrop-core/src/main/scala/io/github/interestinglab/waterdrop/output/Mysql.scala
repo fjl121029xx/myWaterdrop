@@ -57,8 +57,7 @@ class Mysql extends BaseOutput {
 
   override def process(df: Dataset[Row]): Unit = {
 
-//    val dfFill = df.na.fill("").na.fill(0L).na.fill(0).na.fill(0.0)
-    val dfFill = df
+    val dfFill = df.na.fill("").na.fill(0L).na.fill(0).na.fill(0.0)
 
     //df schema fields
     schemeFields = dfFill.schema.fieldNames.toList
