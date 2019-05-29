@@ -71,8 +71,6 @@ object WaterdropStructuredStreaming extends Logging {
       println("\t" + key + " => " + value)
     })
 
-    System.setProperty("java.security.auth.login.config","/Users/jiaquanyu/tmp/dohko.conf")
-
     val sparkSession = SparkSession.builder.config(sparkConf).getOrCreate()
 
     // find all user defined UDFs and register in application init
