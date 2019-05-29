@@ -1,6 +1,6 @@
 package io.github.interestinglab.waterdrop
 
-import io.github.interestinglab.waterdrop.apis.{BaseFilter, BaseOutput, BaseStaticInput, BaseStreamingInput}
+import io.github.interestinglab.waterdrop.apis._
 import io.github.interestinglab.waterdrop.config._
 import io.github.interestinglab.waterdrop.filter.UdfRegister
 import io.github.interestinglab.waterdrop.utils.AsciiArt
@@ -74,11 +74,24 @@ object Waterdrop extends Logging {
     }
   }
 
-  private def showWaterdropAsciiLogo(): Unit = {
+  private[waterdrop] def getConfigFilePath(cmdArgs: CommandLineArgs): String = {
+    Common.getDeployMode match {
+      case Some(m) => {
+        if (m.equals("cluster")) {
+          // only keep filename in cluster mode
+          new Path(cmdArgs.configFile).getName
+        } else {
+          cmdArgs.configFile
+        }
+      }
+    }
+  }
+
+  private[waterdrop] def showWaterdropAsciiLogo(): Unit = {
     AsciiArt.printAsciiArt("Waterdrop")
   }
 
-  private def showConfigError(throwable: Throwable): Unit = {
+  private[waterdrop] def showConfigError(throwable: Throwable): Unit = {
     println("\n\n===============================================================================\n\n")
     val errorMsg = throwable.getMessage
     println("Config Error:\n")
@@ -86,7 +99,7 @@ object Waterdrop extends Logging {
     println("\n===============================================================================\n\n\n")
   }
 
-  private def showFatalError(throwable: Throwable): Unit = {
+  private[waterdrop] def showFatalError(throwable: Throwable): Unit = {
     println("\n\n===============================================================================\n\n")
     val errorMsg = throwable.getMessage
     println("Fatal Error, \n")
@@ -105,26 +118,8 @@ object Waterdrop extends Logging {
     val outputs = configBuilder.createOutputs
     val filters = configBuilder.createFilters
 
-    var configValid = true
-    val plugins = staticInputs ::: streamingInputs ::: filters ::: outputs
-    for (p <- plugins) {
-      val (isValid, msg) = Try(p.checkConfig) match {
-        case Success(info) => {
-          val (ret, message) = info
-          (ret, message)
-        }
-        case Failure(exception) => (false, exception.getMessage)
-      }
 
-      if (!isValid) {
-        configValid = false
-        printf("Plugin[%s] contains invalid config, error: %s\n", p.name, msg)
-      }
-    }
-
-    if (!configValid) {
-      System.exit(-1) // invalid configuration
-    }
+    baseCheckConfig(staticInputs,streamingInputs,outputs,filters)
 
     process(configBuilder, staticInputs, streamingInputs, filters, outputs)
   }
@@ -142,6 +137,8 @@ object Waterdrop extends Logging {
       val (key, value) = entry
       println("\t" + key + " => " + value)
     })
+
+    System.setProperty("java.security.auth.login.config","/Users/jiaquanyu/tmp/dohko.conf")
 
     val sparkSession = SparkSession.builder.config(sparkConf).enableHiveSupport().getOrCreate()
 
@@ -196,7 +193,7 @@ object Waterdrop extends Logging {
 
     val sparkConfig = configBuilder.getSparkConfigs
     val duration = sparkConfig.getLong("spark.streaming.batchDuration")
-    val sparkConf = createSparkConf(configBuilder)
+//    val sparkConf = createSparkConf(configBuilder)
     val ssc = new StreamingContext(sparkSession.sparkContext, Seconds(duration))
 
     basePrepare(sparkSession, staticInputs, streamingInputs, filters, outputs)
@@ -299,39 +296,15 @@ object Waterdrop extends Logging {
 
   }
 
-  private def basePrepare(
-    sparkSession: SparkSession,
-    staticInputs: List[BaseStaticInput],
-    streamingInputs: List[BaseStreamingInput],
-    filters: List[BaseFilter],
-    outputs: List[BaseOutput]): Unit = {
-    for (i <- streamingInputs) {
-      i.prepare(sparkSession)
-    }
-
-    basePrepare(sparkSession, staticInputs, filters, outputs)
-  }
-
-  private def basePrepare(
-    sparkSession: SparkSession,
-    staticInputs: List[BaseStaticInput],
-    filters: List[BaseFilter],
-    outputs: List[BaseOutput]): Unit = {
-
-    for (i <- staticInputs) {
-      i.prepare(sparkSession)
-    }
-
-    for (o <- outputs) {
-      o.prepare(sparkSession)
-    }
-
-    for (f <- filters) {
-      f.prepare(sparkSession)
+  private[waterdrop] def basePrepare(sparkSession: SparkSession, plugins: List[Plugin]*): Unit = {
+    for (pluginList <- plugins) {
+      for (p <- pluginList) {
+        p.prepare(sparkSession)
+      }
     }
   }
 
-  private def createSparkConf(configBuilder: ConfigBuilder): SparkConf = {
+  private[waterdrop] def createSparkConf(configBuilder: ConfigBuilder): SparkConf = {
     val sparkConf = new SparkConf()
 
     configBuilder.getSparkConfigs
@@ -341,6 +314,30 @@ object Waterdrop extends Logging {
       })
 
     sparkConf
+  }
+
+  private[waterdrop] def baseCheckConfig(plugins: List[Plugin]*): Unit = {
+    var configValid = true
+    for (pluginList <- plugins) {
+      for (p <- pluginList) {
+        val (isValid, msg) = Try(p.checkConfig) match {
+          case Success(info) => {
+            val (ret, message) = info
+            (ret, message)
+          }
+          case Failure(exception) => (false, exception.getMessage)
+        }
+
+        if (!isValid) {
+          configValid = false
+          printf("Plugin[%s] contains invalid config, error: %s\n", p.name, msg)
+        }
+      }
+
+      if (!configValid) {
+        System.exit(-1) // invalid configuration
+      }
+    }
   }
 
   private def write2Influx(
