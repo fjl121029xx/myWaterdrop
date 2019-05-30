@@ -13,8 +13,8 @@ class MysqlWriter(createWriter: () => Statement) extends Serializable {
 
   def getColWithDataType(dbName: String, tableName: String): List[Tuple2[String, String]] = {
 
-    val schemaSql =
-      s"SELECT COLUMN_NAME,DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE table_name = '$tableName' AND table_schema = '${dbName}'"
+    val schemaSql = "SELECT COLUMN_NAME,DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS " +
+      s"WHERE table_name = '$tableName' AND table_schema = '${dbName}'"
 
     val rs = writer.executeQuery(schemaSql)
 
@@ -30,10 +30,13 @@ class MysqlWriter(createWriter: () => Statement) extends Serializable {
     try {
       writer.executeUpdate(sql)
     } catch {
-      case ex: Exception =>
-        println(sql)
+      case ex: Exception => println(sql)
         throw ex
     }
+  }
+
+  def getConnection(): Connection = {
+    writer.getConnection
   }
 }
 
@@ -42,7 +45,6 @@ object MysqlWriter {
   def apply(jdbc: String, username: String, password: String): MysqlWriter = {
 
     val f = () => {
-
       val conn = new Retryer().execute(DriverManager.getConnection(jdbc, username, password)).asInstanceOf[Connection]
       val statement = conn.createStatement()
 

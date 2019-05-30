@@ -3,7 +3,7 @@ package io.github.interestinglab.waterdrop.apis
 import org.apache.spark.sql.{Dataset, ForeachWriter, Row}
 import org.apache.spark.sql.streaming.DataStreamWriter
 
-trait BaseStructuredStreamingOutput extends ForeachWriter[Row] with Plugin {
+trait BaseStructuredStreamingOutput extends ForeachWriter[Row] with BaseStructuredStreamingOutputIntra {
 
   /**
     * Things to do before process.
