@@ -112,6 +112,8 @@ class KafkaStream extends BaseStructuredStreamingInput {
 
     val topicList = initConsumer()
 
+    kafkaParams = kafkaParams.-("group.id").map(kv=>("kafka." + kv._1,kv._2))
+
     //如果用户选择offset从broker获取
     if (config.hasPath("offset.location") && config.getString("offset.location").equals("broker")){
       setOffsetMeta(topicList)
@@ -123,7 +125,6 @@ class KafkaStream extends BaseStructuredStreamingInput {
       val (key, value) = entry
       println("[INFO] \t" + key + " = " + value)
     }
-    println("[INFO] \ttopics = " + topics)
 
   }
 
@@ -132,7 +133,7 @@ class KafkaStream extends BaseStructuredStreamingInput {
     var dataFrame = spark.readStream
       .format("kafka")
       .option("subscribe", topics)
-      .options(kafkaParams.-("group.id").map(entry => ("kafka." + entry._1, entry._2)))
+      .options(kafkaParams)
       .load()
 
     if (schema.size > 0) {
@@ -157,6 +158,12 @@ class KafkaStream extends BaseStructuredStreamingInput {
         put("key.deserializer", "org.apache.kafka.common.serialization.StringDeserializer")
         put("value.deserializer", "org.apache.kafka.common.serialization.StringDeserializer")
       }}
+
+    println("[INFO] offset committer props:\n")
+    for (entry <- kafkaParams) {
+      val (key, value) = entry
+      println("[INFO] \t" + key + " = " + value)
+    }
 
     consumer = new KafkaConsumer[String, String](props)
     val topicList = new util.ArrayList[String]()
