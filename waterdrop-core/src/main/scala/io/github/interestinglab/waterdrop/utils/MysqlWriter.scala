@@ -35,6 +35,15 @@ class MysqlWriter(createWriter: () => Statement) extends Serializable {
     }
   }
 
+  def execute(sql: String): Unit = {
+    try {
+      writer.execute(sql)
+    } catch {
+      case ex: Exception => println(sql)
+        throw ex
+    }
+  }
+
   def getConnection(): Connection = {
     writer.getConnection
   }

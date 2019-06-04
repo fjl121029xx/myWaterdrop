@@ -21,13 +21,6 @@ while (( "$#" )); do
       shift 2
       ;;
 
-    -i|--variable)
-      variable=$2
-      java_property_value="-D${variable}"
-      variables_substitution="${java_property_value} ${variables_substitution}"
-      shift 2
-      ;;
-
     --) # end argument parsing
       shift
       break
@@ -80,6 +73,7 @@ if [ "$DEPLOY_MODE" == "cluster" ]; then
     ## add config file
     FilesDepOpts="--files ${CONFIG_FILE}"
 
+    FilesDepOpts="${FilesDepOpts},${CONF_DIR}/kafka_client_jaas.conf"
     ## add plugin files
     #FilesDepOpts="${FilesDepOpts},${APP_DIR}/plugins.tar.gz"
 
@@ -94,67 +88,12 @@ assemblyJarName=$(find ${LIB_DIR} -name Waterdrop-*.jar)
 
 source ${CONF_DIR}/waterdrop-env.sh
 
-string_trim() {
-    echo $1 | awk '{$1=$1;print}'
-}
-
-## get spark conf from config file and specify them in spark-submit
-function get_spark_conf {
-    spark_conf=$(java -cp ${assemblyJarName} io.github.interestinglab.waterdrop.config.ExposeSparkConf ${CONFIG_FILE})
-    if [ "$?" != "0" ]; then
-        echo "[ERROR] config file does not exists or cannot be parsed due to invalid format"
-        exit -1
-    fi
-    echo ${spark_conf}
-}
-
-sparkconf=$(get_spark_conf)
-
-echo "[INFO] spark conf: ${sparkconf}"
-
-# Spark Driver Options
-variables_substitution=$(string_trim "${variables_substitution}")
-driverJavaOpts=""
-executorJavaOpts=""
-clientModeDriverJavaOpts=""
-if [ ! -z "${variables_substitution}" ]; then
-  driverJavaOpts="${variables_substitution}"
-  executorJavaOpts="${variables_substitution}"
-  # in local, client mode, driverJavaOpts can not work, we must use --driver-java-options
-  clientModeDriverJavaOpts="${variables_substitution}"
-fi
-
-driverJavaOpts=${driverJavaOpts,"-Djava.security.auth.login.config=./kafka_client_jaas.conf"}
-
-## compress plugins.tar.gz in cluster mode
-#if [ "${DEPLOY_MODE}" == "cluster" ]; then
-#
-#  plugins_tar_gz="${APP_DIR}/plugins.tar.gz"
-#
-#  if [ ! -f "${plugins_tar_gz}" ]; then
-#    cur_dir=$(pwd)
-#    cd ${APP_DIR}
-#    tar zcf plugins.tar.gz plugins
-#    if [ "$?" != "0" ]; then
-#      echo "[ERROR] failed to compress plugins.tar.gz in cluster mode"
-#      exit -2
-#    fi
-#
-#    echo "[INFO] successfully compressed plugins.tar.gz in cluster mode"
-#    cd ${cur_dir}
-#  fi
-fi
-
-
 exec ${SPARK_HOME}/bin/spark-submit --class io.github.interestinglab.waterdrop.WaterdropStructuredStreaming \
     --name $(getAppName ${CONFIG_FILE}) \
     --master ${MASTER} \
     --deploy-mode ${DEPLOY_MODE} \
-    --driver-java-options "${clientModeDriverJavaOpts}" \
-    --conf spark.executor.extraJavaOptions="${executorJavaOpts}" \
-    --conf spark.driver.extraJavaOptions="${driverJavaOpts}" \
+    --driver-java-options "-Djava.security.auth.login.config=./kafka_client_jaas.conf" \
     --conf "spark.executor.extraJavaOptions=-Djava.security.auth.login.config=./kafka_client_jaas.conf" \
-    ${sparkconf} \
     ${JarDepOpts} \
     ${FilesDepOpts} \
     ${assemblyJarName} ${CMD_ARGUMENTS}
