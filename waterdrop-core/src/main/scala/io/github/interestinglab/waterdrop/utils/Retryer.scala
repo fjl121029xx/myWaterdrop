@@ -5,7 +5,7 @@ package io.github.interestinglab.waterdrop.utils
  * @author jiaquanyu
  *
  */
-class Retryer {
+class Retryer extends Serializable {
 
   private var MAX_RETRY_COUNT = 10
 

@@ -5,9 +5,9 @@ import com.typesafe.config.{Config, ConfigFactory}
 import io.github.interestinglab.waterdrop.apis.BaseFilter
 import io.github.interestinglab.waterdrop.core.RowConstant
 import io.github.interestinglab.waterdrop.utils.SparkSturctTypeUtil
+import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.{Dataset, Row, SparkSession}
-import org.apache.spark.sql.functions._
 
 import scala.collection.JavaConversions._
 
@@ -41,12 +41,12 @@ class Schema extends BaseFilter {
 
   override def process(spark: SparkSession, df: Dataset[Row]): Dataset[Row] = {
 
-    var dateFrame = df.withColumn(RowConstant.TMP, from_json(col(conf.getString("source")), schema))
+    var dataFrame = df.withColumn(RowConstant.TMP, from_json(col(conf.getString("source")), schema))
 
     schema.foreach(f => {
-      dateFrame = dateFrame.withColumn(f.name, col(RowConstant.TMP)(f.name))
+      dataFrame = dataFrame.withColumn(f.name, col(RowConstant.TMP)(f.name))
     })
 
-    dateFrame.drop(RowConstant.TMP, conf.getString("source"))
+    dataFrame.drop(RowConstant.TMP, conf.getString("source"))
   }
 }

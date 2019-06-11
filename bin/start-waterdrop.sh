@@ -93,21 +93,32 @@ if [ "$DEPLOY_MODE" == "cluster" ]; then
     ## add kafka sasl conf
     FilesDepOpts="${FilesDepOpts},${CONF_DIR}/kafka_client_jaas.conf"
 
+    DriverKafkaJavaOption="--conf spark.driver.extraJavaOptions=-Djava.security.auth.login.config=./kafka_client_jaas.conf"
+    ExecutorKafkaJavaOption="--conf spark.executor.extraJavaOptions=-Djava.security.auth.login.config=./kafka_client_jaas.conf"
+    ConfDepOpts="$DriverKafkaJavaOption $ExecutorKafkaJavaOption"
+
     if [ "$METRICS_SINK" == "true" ]; then
        FilesDepOpts="${FilesDepOpts},${CONF_DIR}/metrics.properties"
 
        ##add driver and executor extra class
        DRIVER_EXTRACLASS="--conf spark.driver.extraClassPath=spark-influx-sink-0.4.0.jar:metrics-influxdb-1.1.8.jar"
        EXECUTOR_DRIVER_EXTRACLASS="--conf spark.executor.extraClassPath=spark-influx-sink-0.4.0.jar:metrics-influxdb-1.1.8.jar"
-       ConfDepOpts="$DRIVER_EXTRACLASS $EXECUTOR_DRIVER_EXTRACLASS"
+       ConfDepOpts="$ConfDepOpts $DRIVER_EXTRACLASS $EXECUTOR_DRIVER_EXTRACLASS"
     fi
 
     echo ""
 
 elif [ "$DEPLOY_MODE" == "client" ]; then
 
+    DriverKafkaJavaOption="--conf spark.driver.extraJavaOptions=-Djava.security.auth.login.config=${CONFIG_FILE}/kafka_client_jaas.conf"
+    ExecutorKafkaJavaOption="--conf spark.executor.extraJavaOptions=-Djava.security.auth.login.config=${CONFIG_FILE}/kafka_client_jaas.conf"
+    ConfDepOpts="$DriverKafkaJavaOption $ExecutorKafkaJavaOption"
+
+
     echo ""
 fi
+
+ehco "[INFO] files"$FilesDepOpts
 
 assemblyJarName=$(find ${LIB_DIR} -name Waterdrop-*.jar)
 
@@ -117,8 +128,8 @@ exec ${SPARK_HOME}/bin/spark-submit --class io.github.interestinglab.waterdrop.W
     --name $(getAppName ${CONFIG_FILE}) \
     --master ${MASTER} \
     --deploy-mode ${DEPLOY_MODE} \
-    --driver-java-options "-Djava.security.auth.login.config=./kafka_client_jaas.conf" \
-    --conf "spark.executor.extraJavaOptions=-Djava.security.auth.login.config=./kafka_client_jaas.conf" \
+    #--driver-java-options "-Djava.security.auth.login.config=./kafka_client_jaas.conf" \
+    #--conf "spark.executor.extraJavaOptions=-Djava.security.auth.login.config=./kafka_client_jaas.conf" \
     ${JarDepOpts} \
     ${ConfDepOpts} \
     ${FilesDepOpts} \

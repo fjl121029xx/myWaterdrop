@@ -4,7 +4,7 @@ import java.sql.{Connection, DriverManager}
 
 class MysqlWraper(createConn: () => Connection) extends Serializable {
 
-  val conn = createConn()
+  private lazy val conn = createConn()
 
   def getConnection: Connection= conn
 
