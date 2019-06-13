@@ -82,7 +82,7 @@ class Mysql extends BaseOutput {
       val delSqlBroad = df.sparkSession.sparkContext.broadcast(delSql)
 
       dfFill.where("actionType=\"DELETE\"").foreachPartition(it => {
-        val ps = mysqlWraper.value.getConnection.prepareStatement(delSqlBroad.value)
+        val ps = retryer.execute(mysqlWraper.value.getConnection.prepareStatement(delSqlBroad.value)).asInstanceOf[PreparedStatement]
         iterProcess(it, Array(primaryKeyBroad.value), ps)
       })
       dfFill = dfFill.where("actionType!=\"DELETE\"")
@@ -104,9 +104,10 @@ class Mysql extends BaseOutput {
     val startTime = System.currentTimeMillis()
 
     val insertAcc = df.sparkSession.sparkContext.longAccumulator
+    val sqlBroad = df.sparkSession.sparkContext.broadcast(sql)
 
     dfFill.foreachPartition(it => {
-      val ps = mysqlWraper.value.getConnection.prepareStatement(sql)
+      val ps = retryer.execute(mysqlWraper.value.getConnection.prepareStatement(sqlBroad.value)).asInstanceOf[PreparedStatement]
       insertAcc.add(iterProcess(it,fields,ps))
     })
 

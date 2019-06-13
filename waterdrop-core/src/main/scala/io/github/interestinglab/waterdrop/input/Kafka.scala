@@ -158,15 +158,12 @@ class Kafka extends BaseStaticInput {
     config.hasPath(mysqlPrefix) match {
       case true => {
 
-        mysqlConf = config.getConfig("mysql")
-
         var tps = topicPartitions.to[ListBuffer]
 
         val map = Try(
           new Retryer().execute(KafkaInputOffsetUtils
-            .getOffset(mysqlConf, topicPartitions, appName, config.getString("topics")))) match {
+            .getOffset(config.getConfig("mysql"), topicPartitions, appName, config.getString("topics")))) match {
           case Success(map) => map.asInstanceOf[util.HashMap[TopicPartition, lang.Long]]
-//          case Failure(f) => new util.HashMap[TopicPartition, lang.Long]()
           case Failure(f) => new util.HashMap[TopicPartition, lang.Long](kafkaSource.get.value.getTimeOffset(tps.toList, getHourAgoTimeStamp(2)))
         }
 
@@ -177,7 +174,6 @@ class Kafka extends BaseStaticInput {
           })
         //如mysql不包含的topic-partition信息或获取offset元数据失败 默认获取2小时前的offset
         if (tps.length > 0) {
-//          map.putAll(kafkaSource.get.value.getTimeOffset(tps.toList, getHourAgoTimeStamp(2)))
           map.putAll(kafkaSource.get.value.getBeginningOffset(topicPartitions))
         }
 
@@ -201,10 +197,6 @@ class Kafka extends BaseStaticInput {
 
   val getTopicPartitions = (topics: Set[String]) => topics.flatMap(kafkaSource.get.value.getTopicPartition(_)).toList
 
-  val getHourAgoTimeStamp = (hour: Int) => {
-    val zone = ZoneId.systemDefault()
-    val localDateTime = LocalDateTime.now().minusHours(hour)
-    localDateTime.atZone(zone).toInstant.toEpochMilli
-  }
+  val getHourAgoTimeStamp = (hour: Int) => LocalDateTime.now.minusHours(hour).atZone(ZoneId.systemDefault).toInstant.toEpochMilli
 
 }

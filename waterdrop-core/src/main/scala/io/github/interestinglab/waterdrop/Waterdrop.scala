@@ -46,20 +46,21 @@ object Waterdrop extends Logging {
             println("config OK !")
           }
           case false => {
+            entrypoint(configFilePath)
 
-            Try(entrypoint(configFilePath)) match {
-              case Success(_) => {}
-              case Failure(exception) => {
-                exception.isInstanceOf[ConfigRuntimeException] match {
-                  case true => {
-                    showConfigError(exception)
-                  }
-                  case false => {
-                    showFatalError(exception)
-                  }
-                }
-              }
-            }
+            //            Try(entrypoint(configFilePath)) match {
+            //              case Success(_) => {}
+            //              case Failure(exception) => {
+            //                exception.isInstanceOf[ConfigRuntimeException] match {
+            //                  case true => {
+            //                    showConfigError(exception)
+            //                  }
+            //                  case false => {
+            //                    showFatalError(exception)
+            //                  }
+            //                }
+            //              }
+            //            }
           }
         }
       }
