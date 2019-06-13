@@ -115,7 +115,22 @@ echo "[INFO] DriverMemory: "$DRIVER_MEMORY
 
 source ${CONF_DIR}/waterdrop-env.sh
 
-exec ${SPARK_HOME}/bin/spark-submit --class io.github.interestinglab.waterdrop.Waterdrop \
+appname=`cat ${CONFIG_FILE}|grep "spark.app.name"|awk '{print $3}'`
+appname=${appname:1:0-1}
+echo $appname
+
+{
+while :
+do
+  yarnAppInfo=`yarn application -list|grep $appname`
+  if [ ${#yarnAppInfo} -gt 0 ]; then
+    echo `echo $yarnAppInfo|awk '{print $1}'` > ./applicationid
+    break
+  fi
+done
+} &
+
+${SPARK_HOME}/bin/spark-submit --class io.github.interestinglab.waterdrop.Waterdrop \
     --name $(getAppName ${CONFIG_FILE}) \
     --master ${MASTER} \
     --driver-memory ${DRIVER_MEMORY} \
@@ -124,3 +139,11 @@ exec ${SPARK_HOME}/bin/spark-submit --class io.github.interestinglab.waterdrop.W
     ${ConfDepOpts} \
     ${FilesDepOpts} \
     ${assemblyJarName} ${CMD_ARGUMENTS}
+
+appid=`cat ./applicationid`
+jobStatus=`yarn application -status ${appid}|grep 'Final-State'|awk '{print $3}'`
+
+if [ $jobStatus != "SUCCEEDED" ]; then
+    echo "[ERROR] job status: $jobStatus"
+    exit 1
+fi
