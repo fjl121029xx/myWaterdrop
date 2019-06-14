@@ -144,6 +144,7 @@ class Mysql extends BaseOutput {
     for (i <- 0 until row.size) {
       if (indexs.contains(i)) {
         row.get(i) match {
+          case v: Short=> ps.setInt(p,v)
           case v: Int => ps.setInt(p, v)
           case v: Long => ps.setLong(p, v)
           case v: Float => ps.setFloat(p, v)
