@@ -45,6 +45,8 @@ class Stdout extends BaseOutput {
 
   override def process(df: Dataset[Row]): Unit = {
 
+    println(df.schema.fieldNames.toList)
+
     val limit = config.getInt("limit")
 
     config.getString("serializer") match {

@@ -1,19 +1,23 @@
 package io.github.interestinglab.waterdrop.output
 
-import java.sql.{Connection, DriverManager, Statement}
+import java.sql.{PreparedStatement, Timestamp}
 
-import com.alibaba.fastjson.JSON
 import com.typesafe.config.{Config, ConfigFactory}
 import io.github.interestinglab.waterdrop.apis.BaseOutput
-import io.github.interestinglab.waterdrop.utils.Retryer
+import io.github.interestinglab.waterdrop.utils.{MysqlWraper, MysqlWriter, Retryer}
+import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.sql.{Dataset, Row, SparkSession}
 
 import scala.collection.JavaConversions._
-import scala.collection.mutable.ListBuffer
 
 class Mysql extends BaseOutput {
 
   var config: Config = ConfigFactory.empty()
+  var table:String = _
+  var columns:List[String] = List.empty
+  var fields:Array[String] = _
+  val retryer = new Retryer
+  var mysqlWraper:Broadcast[MysqlWraper] = _
 
   override def setConfig(config: Config): Unit = {
     this.config = config
@@ -25,17 +29,16 @@ class Mysql extends BaseOutput {
 
   override def checkConfig(): (Boolean, String) = {
 
-    val requiredOptions = List("url", "table", "username", "password")
-
-    val nonExistsOptions = requiredOptions.map(optionName => (optionName, config.hasPath(optionName))).filter { p =>
-      val (optionName, exists) = p
-      !exists
+    config.hasPath("url") && config.hasPath("username") && config.hasPath("table")
+    config.hasPath("password") match {
+      case true => {
+        config.hasPath("include_deletion") match {
+          case true => if (config.hasPath("primary_key_filed")) (true, "") else (false, "please specify [primary_key_filed]!!!")
+          case false => (true, "")
+        }
+      }
+      case false => (false, "please specify [url] and [username] and [table] and [password]!!!")
     }
-
-    if (nonExistsOptions.length > 0) {
-      (false, "please specify " + nonExistsOptions.map("[" + _._1 + "]").mkString(", ") + " as non-empty string")
-    }
-    (true, "")
   }
 
   override def prepare(spark: SparkSession): Unit = {
@@ -44,155 +47,115 @@ class Mysql extends BaseOutput {
     val defaultConfig = ConfigFactory.parseMap(
       Map(
         "driver" -> "com.mysql.jdbc.driver", // allowed values: overwrite, append, ignore, error
-        "row.column.toLower" -> false, // convert dataset row column to lower
-        "batch.count" -> 100, // insert batch  count
-        "insert.mode" -> "INSERT" // INSERT or REPLACE
+        "jdbc_output_mode" -> "replace",
+        "include_deletion" -> false,
+        "batch.count" -> 100, // insert batch count
+        "insert.mode" -> "REPLACE" // INSERT IGNORE or REPLACE
       )
     )
+
+    mysqlWraper = spark.sparkContext.broadcast(
+      MysqlWraper(config.getString("url"), config.getString("username"), config.getString("password")))
+
     config = config.withFallback(defaultConfig)
+    table = config.getString("table")
+
+    //get table columns
+    val db = config.getString("url")
+      .reverse.split('?')(if (config.getString("url").contains("?")) 1 else 0)
+      .split("/")(0).reverse
+
+    columns = MysqlWriter(config.getString("url"), config.getString("username"), config.getString("password"))
+      .getColWithDataType(db, table).map(_._1)
   }
 
   override def process(df: Dataset[Row]): Unit = {
 
-    //df schema fields
-    val schemeFields = df.schema.fieldNames.toList
+    var dfFill = df.na.fill("").na.fill(0L).na.fill(0).na.fill(0.0)
 
-    //sql fields type
-    val stringFields = List("varchar", "timestamp", "datetime", "text")
-    val dateFields = List("timestamp", "datetime")
-    val table = config.getString("table")
+    if (config.getBoolean("include_deletion")) {
+      dfFill.cache //获取删除数据
+      val primaryKey = config.getString("primary_key_filed")
+      val delSql = s"DELETE FROM $table where $primaryKey = ?"
 
-    // mysql mysql connect
-    val mysqlWriter = df.sparkSession.sparkContext
-      .broadcast(MysqlWriter(config.getString("url"), config.getString("username"), config.getString("password")))
+      val primaryKeyBroad = df.sparkSession.sparkContext.broadcast(primaryKey)
+      val delSqlBroad = df.sparkSession.sparkContext.broadcast(delSql)
 
-    //get mysql table col with type
-    val colWithType = mysqlWriter.value.getColWithDataType(config.getString("url").split("/").last, table)
-
-    //get sql field info
-    val fields = colWithType.map(_._1)
-    val strFields = colWithType.filter(tp => stringFields.contains(tp._2)).map(_._1)
-    val timeStampFields = list2String(colWithType.filter(tp => dateFields.contains(tp._2)).map(_._1))
-
-    //df schema intersect sql col
-    val filterFields = fields
-      .map(field => {
-        schemeFields.contains(field) || schemeFields.contains(field.toLowerCase) match {
-          case true => field
-          case false => ""
-        }
+      dfFill.where("actionType=\"DELETE\"").foreachPartition(it => {
+        val ps = retryer.execute(mysqlWraper.value.getConnection.prepareStatement(delSqlBroad.value)).asInstanceOf[PreparedStatement]
+        iterProcess(it, Array(primaryKeyBroad.value), ps)
       })
-      .filter(!_.equals(""))
+      dfFill = dfFill.where("actionType!=\"DELETE\"")
+    }
 
-    val fieldStr = list2String(filterFields)
+    fields = df.schema.fieldNames.intersect(columns)
+    val fieldStr = fields.mkString("(", ",", ")")
 
-    val sqlPrefix = s"${config.getString("insert.mode")} INTO $table ($fieldStr) VALUES "
+    val sb = new StringBuffer()
+    for (_ <- fields.toIndexedSeq) yield sb.append("?")
+    val valueStr = sb.toString.mkString("(", ",", ")")
 
-    df.toJSON.foreachPartition(it => {
-      var i = 0
-      val sb = new StringBuffer
-      while (it.hasNext) {
+    val sql = config.getString("jdbc_output_mode") match {
+      case "replace" => s"REPLACE INTO $table$fieldStr VALUES$valueStr"
+      case "insert ignore" => s"INSERT IGNORE INTO $table$fieldStr VALUES$valueStr"
+      case _ => throw new RuntimeException("unknown output_mode,only support [replace] and [insert ignore]")
+    }
 
-        sb.append(s"(")
+    val startTime = System.currentTimeMillis()
 
-        val next = JSON.parseObject(it.next)
+    val insertAcc = df.sparkSession.sparkContext.longAccumulator
+    val sqlBroad = df.sparkSession.sparkContext.broadcast(sql)
 
-        filterFields.foreach(field => {
-
-          schemeFields.contains(field) || schemeFields.contains(field.toLowerCase) match {
-            case true => {
-
-              strFields.contains(field) match {
-                case true => {
-
-                  val value = (next.contains(getRowField(field))) match {
-                    case true =>
-                      sb.append(
-                        "\"" + next
-                          .getString(getRowField(field))
-                          .replace("\\", "\\\\")
-                          .replace("\"", "\\\"") + "\"")
-                    case false => sb.append("\"\"")
-                  }
-
-                  if (timeStampFields.contains(field) && "".equals(value)) {
-                    sb.append("\"2000-01-01 01:01:01\"")
-                  }
-                }
-                case false => sb.append(next.get(field))
-              }
-              if (!fieldStr.endsWith(field)) sb.append(",")
-            }
-            case false => //do nothing
-          }
-        })
-
-        sb.append("),")
-        i = i + 1
-
-        if (i == config.getInt("batch.count") || (!it.hasNext)) {
-
-          val upsert = sqlPrefix + sb.toString.substring(0, sb.length() - 1)
-
-          new Retryer().execute(mysqlWriter.value.upsert(upsert))
-
-          i = 0
-          sb.delete(0, sb.length())
-        }
-      }
+    dfFill.foreachPartition(it => {
+      val ps = retryer.execute(mysqlWraper.value.getConnection.prepareStatement(sqlBroad.value)).asInstanceOf[PreparedStatement]
+      insertAcc.add(iterProcess(it,fields,ps))
     })
+
+    println(s"[INFO]insert count: ${insertAcc.value} , time consuming: ${System.currentTimeMillis - startTime}")
+
+    insertAcc.reset
   }
 
-  private def getRowField(field: String) = if (config.getBoolean("row.column.toLower")) field.toLowerCase else field
+  private def iterProcess(it: Iterator[Row], cols: Array[String], ps: PreparedStatement): Int = {
 
-  private def list2String(list: List[String]) = list.toString.substring(5, list.toString.length - 1).replace(" ", "")
-}
+    var i = 0
+    var sum = 0
 
-class MysqlWriter(createWriter: () => Statement) extends Serializable {
+    println("[INFO] start set prepareStatement")
+    while (it.hasNext) {
+      val row = it.next
+      setPrepareStatement(cols, row, ps)
+      ps.addBatch()
+      i += 1
 
-  lazy val writer = createWriter()
-
-  def getColWithDataType(dbName: String, tableName: String): List[Tuple2[String, String]] = {
-
-    val schemaSql =
-      s"SELECT COLUMN_NAME,DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE table_name = '$tableName' AND table_schema = '${dbName}'"
-
-    val rs = writer.executeQuery(schemaSql)
-
-    val lb = new ListBuffer[Tuple2[String, String]]
-
-    while (rs.next()) {
-      lb.append((rs.getString(1), rs.getString(2)))
-    }
-    lb.toList
-  }
-
-  def upsert(sql: String): Unit = {
-    try {
-      writer.executeUpdate(sql)
-    } catch {
-      case ex: Exception =>
-        println(sql)
-        throw ex
-    }
-  }
-}
-
-object MysqlWriter {
-
-  def apply(jdbc: String, username: String, password: String): MysqlWriter = {
-
-    val f = () => {
-
-      val conn = new Retryer().execute(DriverManager.getConnection(jdbc, username, password)).asInstanceOf[Connection]
-      val statement = conn.createStatement()
-
-      sys.addShutdownHook {
-        conn.close()
-        statement.close()
+      if (i == config.getInt("batch.count") || (!it.hasNext)) {
+        val j = retryer.execute(ps.executeBatch).asInstanceOf[Array[Int]]
+        sum += j.length
+        i = 0
       }
-      statement
     }
-    new MysqlWriter(f)
+    sum
   }
+
+  private def setPrepareStatement(fields:Array[String],row: Row, ps: PreparedStatement): Unit = {
+
+    var p = 1
+    val indexs = fields.map(row.fieldIndex(_))
+    for (i <- 0 until row.size) {
+      if (indexs.contains(i)) {
+        row.get(i) match {
+          case v: Short=> ps.setInt(p,v)
+          case v: Int => ps.setInt(p, v)
+          case v: Long => ps.setLong(p, v)
+          case v: Float => ps.setFloat(p, v)
+          case v: Double => ps.setDouble(p, v)
+          case v: String => ps.setString(p, v)
+          case v: Timestamp => ps.setTimestamp(p, v)
+        }
+        p += 1
+      }
+    }
+  }
+
+
 }

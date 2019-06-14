@@ -191,6 +191,100 @@ class ConfigBuilder(configFile: String) {
 
     qualifier
   }
+
+  private def buildClassFullQualifier(name: String, classType: String, engine: String): String = {
+
+    var qualifier = name
+    if (qualifier.split("\\.").length == 1) {
+
+      val packageName = classType match {
+        case "input" => ConfigBuilder.InputPackage + "." + engine
+        case "filter" => ConfigBuilder.FilterPackage
+        case "output" => ConfigBuilder.OutputPackage + "." + engine
+      }
+
+      val services: Iterable[Plugin] =
+        (ServiceLoader load classOf[BaseStaticInput]).asScala ++
+          (ServiceLoader load classOf[BaseStreamingInput]).asScala ++
+          (ServiceLoader load classOf[BaseFilter]).asScala ++
+          (ServiceLoader load classOf[BaseOutput]).asScala ++
+          (ServiceLoader load classOf[BaseStructuredStreamingInput]).asScala ++
+          (ServiceLoader load classOf[BaseStructuredStreamingOutput]).asScala ++
+          (ServiceLoader load classOf[BaseStructuredStreamingOutputIntra])
+
+      var classFound = false
+      breakable {
+        for (serviceInstance <- services) {
+          val clz = serviceInstance.getClass
+          // get class name prefixed by package name
+          val clzNameLowercase = clz.getName.toLowerCase()
+          val qualifierWithPackage = packageName + "." + qualifier
+          if (clzNameLowercase == qualifierWithPackage.toLowerCase) {
+            qualifier = clz.getName
+            classFound = true
+            break
+          }
+        }
+      }
+    }
+
+    qualifier
+  }
+
+  def createStructuredStreamingInputs(engine: String): List[BaseStructuredStreamingInput] = {
+
+    var inputList = List[BaseStructuredStreamingInput]()
+    config
+      .getConfigList("input")
+      .foreach(plugin => {
+        val className = buildClassFullQualifier(plugin.getString(ConfigBuilder.PluginNameKey), "input", engine)
+
+        val obj = Class
+          .forName(className)
+          .newInstance()
+
+        obj match {
+          case inputObject: BaseStructuredStreamingInput => {
+            val input = inputObject.asInstanceOf[BaseStructuredStreamingInput]
+            input.setConfig(plugin.getConfig(ConfigBuilder.PluginParamsKey))
+            inputList = inputList :+ input
+          }
+          case _ => // do nothing
+        }
+      })
+
+    inputList
+  }
+
+
+  def createOutputs[T <: Plugin](engine: String): List[T] = {
+
+    var outputList = List[T]()
+    config
+      .getConfigList("output")
+      .foreach(plugin => {
+
+        val className = engine match {
+          case "batch" | "sparkstreaming" =>
+            buildClassFullQualifier(plugin.getString(ConfigBuilder.PluginNameKey), "output", "batch")
+          case "structuredstreaming" =>
+            buildClassFullQualifier(plugin.getString(ConfigBuilder.PluginNameKey), "output", engine)
+
+        }
+
+        val obj = Class
+          .forName(className)
+          .newInstance()
+          .asInstanceOf[T]
+
+        obj.setConfig(plugin.getConfig(ConfigBuilder.PluginParamsKey))
+
+        outputList = outputList :+ obj
+      })
+
+    outputList
+  }
+
 }
 
 object ConfigBuilder {

@@ -4,3 +4,4 @@ io.github.interestinglab.waterdrop.input.File
 io.github.interestinglab.waterdrop.input.Kafka
 io.github.interestinglab.waterdrop.input.Hive
 io.github.interestinglab.waterdrop.input.Jdbc
+io.github.interestinglab.waterdrop.input.Elasticsearch

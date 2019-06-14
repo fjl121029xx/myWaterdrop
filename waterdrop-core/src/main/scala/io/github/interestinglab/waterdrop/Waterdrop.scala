@@ -1,11 +1,9 @@
 package io.github.interestinglab.waterdrop
 
-import java.io.File
-
-import io.github.interestinglab.waterdrop.apis.{BaseFilter, BaseOutput, BaseStaticInput, BaseStreamingInput}
+import io.github.interestinglab.waterdrop.apis._
 import io.github.interestinglab.waterdrop.config._
 import io.github.interestinglab.waterdrop.filter.UdfRegister
-import io.github.interestinglab.waterdrop.utils.{AsciiArt, CompressionUtils}
+import io.github.interestinglab.waterdrop.utils.AsciiArt
 import org.apache.commons.lang3.exception.ExceptionUtils
 import org.apache.hadoop.fs.Path
 import org.apache.spark.SparkConf
@@ -19,6 +17,11 @@ import scala.collection.JavaConversions._
 import scala.util.{Failure, Success, Try}
 
 object Waterdrop extends Logging {
+
+  var inputRecords = 0L
+  var inputBytes = 0L
+  var outputWritten = 0L
+  var outputBytes = 0L
 
   def main(args: Array[String]) {
 
@@ -43,20 +46,21 @@ object Waterdrop extends Logging {
             println("config OK !")
           }
           case false => {
+            entrypoint(configFilePath)
 
-            Try(entrypoint(configFilePath)) match {
-              case Success(_) => {}
-              case Failure(exception) => {
-                exception.isInstanceOf[ConfigRuntimeException] match {
-                  case true => {
-                    showConfigError(exception)
-                  }
-                  case false => {
-                    showFatalError(exception)
-                  }
-                }
-              }
-            }
+            //            Try(entrypoint(configFilePath)) match {
+            //              case Success(_) => {}
+            //              case Failure(exception) => {
+            //                exception.isInstanceOf[ConfigRuntimeException] match {
+            //                  case true => {
+            //                    showConfigError(exception)
+            //                  }
+            //                  case false => {
+            //                    showFatalError(exception)
+            //                  }
+            //                }
+            //              }
+            //            }
           }
         }
       }
@@ -66,11 +70,24 @@ object Waterdrop extends Logging {
     }
   }
 
-  private def showWaterdropAsciiLogo(): Unit = {
+  private[waterdrop] def getConfigFilePath(cmdArgs: CommandLineArgs): String = {
+    Common.getDeployMode match {
+      case Some(m) => {
+        if (m.equals("cluster")) {
+          // only keep filename in cluster mode
+          new Path(cmdArgs.configFile).getName
+        } else {
+          cmdArgs.configFile
+        }
+      }
+    }
+  }
+
+  private[waterdrop] def showWaterdropAsciiLogo(): Unit = {
     AsciiArt.printAsciiArt("Waterdrop")
   }
 
-  private def showConfigError(throwable: Throwable): Unit = {
+  private[waterdrop] def showConfigError(throwable: Throwable): Unit = {
     println("\n\n===============================================================================\n\n")
     val errorMsg = throwable.getMessage
     println("Config Error:\n")
@@ -78,7 +95,7 @@ object Waterdrop extends Logging {
     println("\n===============================================================================\n\n\n")
   }
 
-  private def showFatalError(throwable: Throwable): Unit = {
+  private[waterdrop] def showFatalError(throwable: Throwable): Unit = {
     println("\n\n===============================================================================\n\n")
     val errorMsg = throwable.getMessage
     println("Fatal Error, \n")
@@ -97,61 +114,8 @@ object Waterdrop extends Logging {
     val outputs = configBuilder.createOutputs
     val filters = configBuilder.createFilters
 
-    var configValid = true
-    val plugins = staticInputs ::: streamingInputs ::: filters ::: outputs
-    for (p <- plugins) {
-      val (isValid, msg) = Try(p.checkConfig) match {
-        case Success(info) => {
-          val (ret, message) = info
-          (ret, message)
-        }
-        case Failure(exception) => (false, exception.getMessage)
-      }
 
-      if (!isValid) {
-        configValid = false
-        printf("Plugin[%s] contains invalid config, error: %s\n", p.name, msg)
-      }
-    }
-
-    if (!configValid) {
-      System.exit(-1) // invalid configuration
-    }
-
-    Common.getDeployMode match {
-      case Some(m) => {
-        if (m.equals("cluster")) {
-
-          logInfo("preparing cluster mode work dir files...")
-
-          // plugins.tar.gz is added in local app temp dir of driver and executors in cluster mode from --files specified in spark-submit
-          val workDir = new File(".")
-          logWarning("work dir exists: " + workDir.exists() + ", is dir: " + workDir.isDirectory)
-
-          workDir.listFiles().foreach(f => logWarning("\t list file: " + f.getAbsolutePath))
-
-          // decompress plugin dir
-          val compressedFile = new File("plugins.tar.gz")
-
-          Try(CompressionUtils.unGzip(compressedFile, workDir)) match {
-            case Success(tempFile) => {
-              Try(CompressionUtils.unTar(tempFile, workDir)) match {
-                case Success(_) => logInfo("succeeded to decompress plugins.tar.gz")
-                case Failure(ex) => {
-                  logError("failed to decompress plugins.tar.gz", ex)
-                  sys.exit(-1)
-                }
-              }
-
-            }
-            case Failure(ex) => {
-              logError("failed to decompress plugins.tar.gz", ex)
-              sys.exit(-1)
-            }
-          }
-        }
-      }
-    }
+    baseCheckConfig(staticInputs,streamingInputs,outputs,filters)
 
     process(configBuilder, staticInputs, streamingInputs, filters, outputs)
   }
@@ -198,7 +162,7 @@ object Waterdrop extends Logging {
 
     val sparkConfig = configBuilder.getSparkConfigs
     val duration = sparkConfig.getLong("spark.streaming.batchDuration")
-    val sparkConf = createSparkConf(configBuilder)
+//    val sparkConf = createSparkConf(configBuilder)
     val ssc = new StreamingContext(sparkSession.sparkContext, Seconds(duration))
 
     basePrepare(sparkSession, staticInputs, streamingInputs, filters, outputs)
@@ -233,35 +197,30 @@ object Waterdrop extends Logging {
       }
 
       // For implicit conversions like converting RDDs to DataFrames
-
-      //      val schema = StructType(Array(StructField("raw_message", StringType)))
       val schema = new StructType().add("raw_message", DataTypes.StringType)
       val encoder = RowEncoder(schema)
       var ds = sparkSession.createDataset(rowsRDD)(encoder)
 
-      // Ignore empty schema dataset
-      if (ds.columns.length > 0 && !rowsRDD.isEmpty()) {
 
-        for (f <- filters) {
-          ds = f.process(sparkSession, ds)
-        }
-
-        streamingInputs.foreach(p => {
-          p.beforeOutput
-        })
-
-        try {
-          outputs.foreach(p => {
-            p.process(ds)
-          })
-        } catch {
-          case ex: Exception => throw ex
-        }
-
-        streamingInputs.foreach(p => {
-          p.afterOutput
-        })
+      for (f <- filters) {
+        ds = f.process(sparkSession, ds)
       }
+
+      streamingInputs.foreach(p => {
+        p.beforeOutput
+      })
+
+      try {
+        outputs.foreach(p => {
+          p.process(ds)
+        })
+      } catch {
+        case ex: Exception => throw ex
+      }
+
+      streamingInputs.foreach(p => {
+        p.afterOutput
+      })
     }
 
     ssc.start()
@@ -286,15 +245,12 @@ object Waterdrop extends Logging {
     if (staticInputs.nonEmpty) {
       for (input <- staticInputs) {
         var ds = input.getDataset(sparkSession)
-        println(s"[INFO] input ${input.getClass.getSimpleName} done!!!")
         if (ds.columns.length > 0) {
           for (f <- filters) {
             ds = f.process(sparkSession, ds)
-            println(s"[INFO] filter ${f.getClass.getSimpleName} done!!!")
           }
           outputs.foreach(p => {
             p.process(ds)
-            println("[INFO] out put sum: " + ds.count)
           })
         }
         input.afterBatch(sparkSession)
@@ -305,39 +261,15 @@ object Waterdrop extends Logging {
 
   }
 
-  private def basePrepare(
-    sparkSession: SparkSession,
-    staticInputs: List[BaseStaticInput],
-    streamingInputs: List[BaseStreamingInput],
-    filters: List[BaseFilter],
-    outputs: List[BaseOutput]): Unit = {
-    for (i <- streamingInputs) {
-      i.prepare(sparkSession)
-    }
-
-    basePrepare(sparkSession, staticInputs, filters, outputs)
-  }
-
-  private def basePrepare(
-    sparkSession: SparkSession,
-    staticInputs: List[BaseStaticInput],
-    filters: List[BaseFilter],
-    outputs: List[BaseOutput]): Unit = {
-
-    for (i <- staticInputs) {
-      i.prepare(sparkSession)
-    }
-
-    for (o <- outputs) {
-      o.prepare(sparkSession)
-    }
-
-    for (f <- filters) {
-      f.prepare(sparkSession)
+  private[waterdrop] def basePrepare(sparkSession: SparkSession, plugins: List[Plugin]*): Unit = {
+    for (pluginList <- plugins) {
+      for (p <- pluginList) {
+        p.prepare(sparkSession)
+      }
     }
   }
 
-  private def createSparkConf(configBuilder: ConfigBuilder): SparkConf = {
+  private[waterdrop] def createSparkConf(configBuilder: ConfigBuilder): SparkConf = {
     val sparkConf = new SparkConf()
 
     configBuilder.getSparkConfigs
@@ -348,4 +280,29 @@ object Waterdrop extends Logging {
 
     sparkConf
   }
+
+  private[waterdrop] def baseCheckConfig(plugins: List[Plugin]*): Unit = {
+    var configValid = true
+    for (pluginList <- plugins) {
+      for (p <- pluginList) {
+        val (isValid, msg) = Try(p.checkConfig) match {
+          case Success(info) => {
+            val (ret, message) = info
+            (ret, message)
+          }
+          case Failure(exception) => (false, exception.getMessage)
+        }
+
+        if (!isValid) {
+          configValid = false
+          printf("Plugin[%s] contains invalid config, error: %s\n", p.name, msg)
+        }
+      }
+
+      if (!configValid) {
+        System.exit(-1) // invalid configuration
+      }
+    }
+  }
+
 }

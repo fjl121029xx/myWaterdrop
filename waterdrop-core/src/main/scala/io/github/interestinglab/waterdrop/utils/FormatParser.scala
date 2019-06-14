@@ -24,7 +24,7 @@ class FormatParser(sourceTimeFormat: String, targetTimeFormat: String) extends D
       val date = sourceDateFormat.parse(input)
       (true, targetDateFormat.format(date))
     } catch {
-      case NonFatal(e) => (false, "")
+      case NonFatal(e) => (false, e.getMessage)
     }
   }
 

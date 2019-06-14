@@ -12,20 +12,18 @@ import scala.collection.mutable.ListBuffer
 import scala.collection.JavaConversions._
 
 /**
- *
  * @author jiaquanyu
- *
  */
 class KafkaSource(createConsumer: () => KafkaConsumer[String, String]) extends Serializable {
 
   lazy val consumer = createConsumer()
 
   def getTopicPartition(topic: String): List[TopicPartition] = {
-    var list = new ListBuffer[TopicPartition]
+    val list = new ListBuffer[TopicPartition]
     consumer
       .partitionsFor(topic)
       .foreach(partitionInfo => {
-        list.append(new TopicPartition(topic, partitionInfo.partition()))
+        list.append(new TopicPartition(topic, partitionInfo.partition))
       })
     list.toList
   }
@@ -39,13 +37,13 @@ class KafkaSource(createConsumer: () => KafkaConsumer[String, String]) extends S
     offsetTimeStamp: Long): util.Map[TopicPartition, lang.Long] = {
 
     val topicPartitionWithTimeStamp = topicPartitions.map(t => t -> lang.Long.valueOf(offsetTimeStamp)).toMap[TopicPartition,lang.Long]
-    println(topicPartitionWithTimeStamp)
+    println("[INFO] topicPartitionWithTimeStamp: " + topicPartitionWithTimeStamp)
 
     val partitionToTimestamp =
       consumer.offsetsForTimes(topicPartitionWithTimeStamp)
-    println(partitionToTimestamp)
+    println("[INFO] partitionToTimestamp: " + partitionToTimestamp)
     partitionToTimestamp.map(t => {
-      (t._1, lang.Long.valueOf(t._2.offset()))
+      (t._1, if(t._2 == null) null else lang.Long.valueOf(t._2.offset))
     })
   }
 

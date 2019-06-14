@@ -2,6 +2,7 @@ package io.github.interestinglab.waterdrop.filter
 
 import com.typesafe.config.{Config, ConfigFactory}
 import io.github.interestinglab.waterdrop.apis.BaseFilter
+import org.apache.spark.sql.expressions.Window
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.{Dataset, Row, SparkSession}
 
@@ -29,35 +30,14 @@ class Recent extends BaseFilter {
 
     val unionFieldArr = conf.getString("union.fields").split(",")
 
-    val schemaLost = unionFieldArr
-      .map(field => {
-        (field, df.schema.fieldNames.contains(field))
-      })
-      .filter(!_._2)
+    val increasingID = "datasets_increasing_id"
 
-    if (schemaLost.size > 0) {
-      println(
-        s"[ERROR] union ${schemaLost.map(_._1).toList.toString.replace("List(", "").replace(")", "")} field missing!!!")
-      spark.emptyDataFrame
-    } else {
-      //add increasing unionKey
-      val increasingID = "datasets_increasing_id"
-      val unionKey = "datasets_union_key"
+    val windowSpec = Window.partitionBy(unionFieldArr.map(col(_)): _*)
 
-      val dfi = df
-        .withColumn(increasingID, monotonically_increasing_id)
-        .withColumn(unionKey, concat(unionFieldArr.map(col(_)): _*))
-
-      //get recent data
-      val dfm = dfi
-        .groupBy(unionKey)
-        .max(increasingID)
-
-      //drop increasing and unionKey
-      dfm
-        .join(dfi, dfm(s"max($increasingID)") === dfi(increasingID) and dfm(unionKey) === dfi(unionKey))
-        .drop(s"max($increasingID)", increasingID, unionKey)
-    }
+    df.withColumn(increasingID, monotonically_increasing_id)
+      .withColumn(s"max_${increasingID}", max(col(increasingID)).over(windowSpec))
+      .where(s"$increasingID == max_${increasingID}")
+      .drop(increasingID, s"max_${increasingID}")
   }
 
 }

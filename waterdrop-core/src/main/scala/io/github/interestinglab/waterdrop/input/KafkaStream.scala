@@ -53,6 +53,8 @@ class KafkaStream extends BaseStreamingInput {
 
     val defaultConfig = ConfigFactory.parseMap(
       Map(
+        "consumer.enable.auto.commit" -> "false",
+        "consumer.auto.offset.reset" -> "latest",
         "consumer.key.deserializer" -> "org.apache.kafka.common.serialization.StringDeserializer",
         "consumer.value.deserializer" -> "org.apache.kafka.common.serialization.StringDeserializer"
       )

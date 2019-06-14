@@ -1,13 +1,10 @@
 package io.github.interestinglab.waterdrop.input
 
-import java.time.{LocalDateTime, ZoneId}
 import java.util.Properties
-import java.{lang, util}
 
 import com.typesafe.config.{Config, ConfigFactory}
 import io.github.interestinglab.waterdrop.apis.BaseStaticInput
-import io.github.interestinglab.waterdrop.utils.{KafkaInputOffsetUtils, KafkaSource, Retryer}
-import org.apache.kafka.common.TopicPartition
+import io.github.interestinglab.waterdrop.utils.KafkaSource
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.sql.catalyst.encoders.RowEncoder
 import org.apache.spark.sql.types.{DataTypes, StructType}
@@ -16,21 +13,17 @@ import org.apache.spark.streaming.kafka010.LocationStrategies.PreferConsistent
 import org.apache.spark.streaming.kafka010.{KafkaUtils, OffsetRange}
 
 import scala.collection.JavaConversions._
-import scala.collection.mutable.ListBuffer
-import scala.util.{Failure, Success, Try}
 
 class Kafka extends BaseStaticInput {
 
   var config: Config = ConfigFactory.empty()
-  var mysqlConf: Config = ConfigFactory.empty()
 
-  var kafkaSource: Option[Broadcast[KafkaSource]] = None
-  var offsetRanges: Option[Array[OffsetRange]] = None
+  var kafkaSource: Broadcast[KafkaSource] = _
+  var offsetRanges: Array[OffsetRange] = _
 
   val consumerPrefix = "consumer"
-  val mysqlPrefix = "mysql"
-
-  val MAX_RETRY_COUNT = 10
+  val offsetStartTimeStamp = "offset.start.timestamp"
+  val offsetEndTimeStamp = "offset.end.timestamp"
 
   override def setConfig(config: Config): Unit = {
     this.config = config
@@ -44,11 +37,12 @@ class Kafka extends BaseStaticInput {
     config.hasPath("topics") match {
       case true => {
         val consumerConfig = config.getConfig(consumerPrefix)
-        consumerConfig.hasPath("bootstrap.servers") &&
-          !consumerConfig.getString("bootstrap.servers").trim.isEmpty match {
+        consumerConfig.hasPath("bootstrap.servers") && !consumerConfig.getString("bootstrap.servers").trim.isEmpty &&
+          config.hasPath(offsetStartTimeStamp) && config.hasPath(offsetEndTimeStamp)  match {
           case true => (true, "")
           case false =>
-            (false, "please specify [consumer.bootstrap.servers] as non-empty string")
+            (false, "[consumer.bootstrap.servers],[offset.start.timestamp] and [offset.end.timestamp] are required!!! " +
+              "then [consumer.bootstrap.servers] as non-empty string")
         }
       }
       case false => (false, "please specify [topics] as non-empty string, multiple topics separated by \",\"")
@@ -86,8 +80,6 @@ class Kafka extends BaseStaticInput {
       println("[INFO] \t" + key + " = " + value)
     }
 
-    val topics = config.getString("topics").split(",").toSet
-
     //kafka consumer properties
     val props = new Properties()
     config
@@ -99,92 +91,39 @@ class Kafka extends BaseStaticInput {
         props.put(key, value)
       })
 
-    kafkaSource = Some(sparkSession.sparkContext.broadcast(KafkaSource(props)))
+    kafkaSource = sparkSession.sparkContext.broadcast(KafkaSource(props))
 
-    val beginOffset = getBeginningOffsets(topics, sparkSession.sparkContext.appName)
-    //get offsets range
-    offsetRanges = Some(
-      topics
-        .flatMap(topic => {
-          val list = new ListBuffer[OffsetRange]
-          val tps = kafkaSource.get.value.getTopicPartition(topic)
-          val endOffsets = kafkaSource.get.value.getEndOffset(tps)
+    val topicPartitions = config.getString("topics").split(",").toList.flatMap(kafkaSource.value.getTopicPartition(_))
 
-          tps.foreach(tp => {
-            list.append(OffsetRange(tp, beginOffset.get(tp), endOffsets.get(tp)))
-          })
-          list.toList
-        })
-        .toArray)
+    var startOffsets = kafkaSource.value.getTimeOffset(topicPartitions,config.getLong(offsetStartTimeStamp))
 
-    //print offset info and sum
-    showOffsetInfo(offsetRanges.get)
+    //topic partition 全部无数据
+    if (startOffsets.count(_._2 == null) == startOffsets.size) {
+      println("[INFO] topics no data")
+      sparkSession.emptyDataFrame
+    } else {
+      startOffsets = startOffsets.filter(_._2 != null)
+      val endOffsets = kafkaSource.value.getTimeOffset(startOffsets.keys.toList, config.getLong(offsetEndTimeStamp))
+      kafkaSource.value.getEndOffset(endOffsets.filter(_._2 == null).keys.toList).foldLeft(endOffsets)((endOffsets, tp) => {
+        endOffsets.put(tp._1, tp._2)
+        endOffsets
+      })
 
-    //start offset end offset(latest offset)
-    val rdd = KafkaUtils
-      .createRDD[String, String](sparkSession.sparkContext, kafkaParams, offsetRanges.get, PreferConsistent)
-      .map(cr => {
+      offsetRanges = startOffsets.keys.map(tp => OffsetRange(tp, startOffsets.get(tp), endOffsets.get(tp))).toArray
+
+      showOffsetInfo(offsetRanges)
+
+      val rdd = KafkaUtils.createRDD[String, String](sparkSession.sparkContext, kafkaParams, offsetRanges, PreferConsistent).map(cr => {
         //string to Row
         RowFactory.create(cr.value)
       })
 
-    val schema = new StructType()
-      .add("raw_message", DataTypes.StringType)
+      val schema = new StructType().add("raw_message", DataTypes.StringType)
 
-    //RDD convert DateSet[Row]
-    sparkSession.createDataset(rdd)(RowEncoder(schema))
-  }
-
-  override def afterBatch(spark: SparkSession): Unit = {
-
-    //save offset
-    config.hasPath(mysqlPrefix) match {
-      case true =>
-        Try(
-          new Retryer().execute(KafkaInputOffsetUtils
-            .saveOffset(mysqlConf, offsetRanges.get, spark.sparkContext.appName, config.getString("topics")))) match {
-          case Success(i) => println("[INFO] save offset done!")
-          case Failure(f) => println("[ERROR] save offset error: " + f.getMessage)
-        }
-      case false => //do nothing
+      //RDD convert DateSet[Row]
+      sparkSession.createDataset(rdd)(RowEncoder(schema))
     }
-  }
 
-  def getBeginningOffsets(topics: Set[String], appName: String): util.Map[TopicPartition, lang.Long] = {
-
-    val topicPartitions = getTopicPartitions(topics)
-
-    //判断是否包含mysql配置
-    config.hasPath(mysqlPrefix) match {
-      case true => {
-
-        mysqlConf = config.getConfig("mysql")
-
-        var tps = topicPartitions.to[ListBuffer]
-
-        val map = Try(
-          new Retryer().execute(KafkaInputOffsetUtils
-            .getOffset(mysqlConf, topicPartitions, appName, config.getString("topics")))) match {
-          case Success(map) => map.asInstanceOf[util.HashMap[TopicPartition, lang.Long]]
-          case Failure(f) => new util.HashMap[TopicPartition, lang.Long]()
-        }
-
-        map
-          .entrySet()
-          .foreach(entry => {
-            tps = tps.-(entry.getKey)
-          })
-        //如mysql不包含的topic-partition信息或获取offset元数据失败 默认获取2小时前的offset
-        if (tps.length > 0) {
-          map.putAll(kafkaSource.get.value.getTimeOffset(tps.toList, getHourAgoTimeStamp(2)))
-        }
-
-        map
-      }
-      case false => {
-        kafkaSource.get.value.getBeginningOffset(topicPartitions)
-      }
-    }
   }
 
   def showOffsetInfo(offsetRanges: Array[OffsetRange]): Unit = {
@@ -195,14 +134,6 @@ class Kafka extends BaseStaticInput {
       sum += offsetRange.untilOffset - offsetRange.fromOffset
     })
     println("[INFO] Kafka Range Sum :" + sum)
-  }
-
-  val getTopicPartitions = (topics: Set[String]) => topics.flatMap(kafkaSource.get.value.getTopicPartition(_)).toList
-
-  val getHourAgoTimeStamp = (hour: Int) => {
-    val zone = ZoneId.systemDefault()
-    val localDateTime = LocalDateTime.now().minusHours(hour)
-    localDateTime.atZone(zone).toInstant.toEpochMilli
   }
 
 }

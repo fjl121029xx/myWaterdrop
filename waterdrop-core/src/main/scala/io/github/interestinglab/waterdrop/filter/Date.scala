@@ -14,15 +14,15 @@ class Date extends BaseFilter {
   var config: Config = ConfigFactory.empty()
 
   /**
-   * Set Config.
-   * */
+    * Set Config.
+    **/
   override def setConfig(config: Config): Unit = {
     this.config = config
   }
 
   /**
-   * Get Config.
-   * */
+    * Get Config.
+    **/
   override def getConfig(): Config = {
     this.config
   }
@@ -62,10 +62,11 @@ class Date extends BaseFilter {
     }
 
     val func = udf((s: String) => {
-      val (success, dateTime) = dateParser.parse(s)
+      val (success, result) = dateParser.parse(s)
       if (success) {
-        dateTime
+        result
       } else {
+        println("[ERROR] " + result)
         StringTemplate.substitute(defaultValue, targetTimeFormat)
       }
     })

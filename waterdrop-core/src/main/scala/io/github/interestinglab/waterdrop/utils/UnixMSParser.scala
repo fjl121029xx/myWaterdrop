@@ -15,7 +15,7 @@ class UnixMSParser(targetTimeFormat: String) extends DateParser {
       val timeMillis = input.toLong
       parse(timeMillis)
     } catch {
-      case NonFatal(e) => (false, "")
+      case NonFatal(e) => (false, e.getMessage)
     }
   }
 
