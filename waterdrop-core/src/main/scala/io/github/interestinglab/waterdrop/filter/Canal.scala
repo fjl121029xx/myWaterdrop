@@ -45,31 +45,25 @@ class Canal extends BaseFilter {
 
     import spark.implicits._
 
-    //filter empty dataset
-    if (df.count == 0) {
-      println("[WARN] dataset is empty, return empty dataframe")
-      spark.emptyDataFrame
-    } else {
-      //dataset pre-process,convert to dataframe
-      val convertDf = df.schema.size match {
-        case 1 => spark.read.json(df.mapPartitions(it => it.map(_.mkString)))
-        case _ => df
-      }
+    //dataset pre-process,convert to dataframe
+    val convertDf = df.schema.size match {
+      case 1 => spark.read.json(df.mapPartitions(it => it.map(_.mkString)))
+      case _ => df
+    }
 
-      val tableRegex = conf.getString("table.regex")
+    val tableRegex = conf.getString("table.regex")
 
-      //filter table and delete
-      conf.getBoolean("table.delete.option") match {
-        case true =>
-          spark.read.json(convertDf.filter($"$TABLE_NAME".rlike(tableRegex)).toJSON.mapPartitions(canalFieldsExtract))
-        case false =>
-          spark.read.json(
-            convertDf
-              .filter($"$TABLE_NAME".rlike(tableRegex))
-              .filter($"$ACTION_TYPE".notEqual("DELETE"))
-              .toJSON
-              .mapPartitions(canalFieldsExtract))
-      }
+    //filter table and delete
+    conf.getBoolean("table.delete.option") match {
+      case true =>
+        spark.read.json(convertDf.filter($"$TABLE_NAME".rlike(tableRegex)).toJSON.mapPartitions(canalFieldsExtract))
+      case false =>
+        spark.read.json(
+          convertDf
+            .filter($"$TABLE_NAME".rlike(tableRegex))
+            .filter($"$ACTION_TYPE".notEqual("DELETE"))
+            .toJSON
+            .mapPartitions(canalFieldsExtract))
     }
 
   }
