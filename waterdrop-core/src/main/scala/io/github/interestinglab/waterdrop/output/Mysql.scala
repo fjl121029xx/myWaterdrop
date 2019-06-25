@@ -4,8 +4,10 @@ import java.sql.{PreparedStatement, Timestamp}
 
 import com.typesafe.config.{Config, ConfigFactory}
 import io.github.interestinglab.waterdrop.apis.BaseOutput
-import io.github.interestinglab.waterdrop.utils.{MysqlWraper, MysqlWriter, Retryer}
+import io.github.interestinglab.waterdrop.filter.Schema
+import io.github.interestinglab.waterdrop.utils.{MysqlWraper, MysqlWriter, Retryer, SchemaUtils}
 import org.apache.spark.broadcast.Broadcast
+import org.apache.spark.sql.functions._
 import org.apache.spark.sql.{Dataset, Row, SparkSession}
 
 import scala.collection.JavaConversions._
@@ -13,11 +15,13 @@ import scala.collection.JavaConversions._
 class Mysql extends BaseOutput {
 
   var config: Config = ConfigFactory.empty()
-  var table:String = _
-  var columns:List[String] = List.empty
-  var fields:Array[String] = _
+  var table: String = _
+  var columnWithDataTypes: List[(String, String)] = _
+  var columns: List[String] = List.empty
+  var fields: Array[String] = _
   val retryer = new Retryer
-  var mysqlWraper:Broadcast[MysqlWraper] = _
+  var mysqlWraper: Broadcast[MysqlWraper] = _
+  var filterSchema: Schema = _
 
   override def setConfig(config: Config): Unit = {
     this.config = config
@@ -50,7 +54,8 @@ class Mysql extends BaseOutput {
         "jdbc_output_mode" -> "replace",
         "include_deletion" -> false,
         "batch.count" -> 100, // insert batch count
-        "insert.mode" -> "REPLACE" // INSERT IGNORE or REPLACE
+        "insert.mode" -> "REPLACE", // INSERT IGNORE or REPLACE
+        "table_filter" -> false
       )
     )
 
@@ -65,13 +70,29 @@ class Mysql extends BaseOutput {
       .reverse.split('?')(if (config.getString("url").contains("?")) 1 else 0)
       .split("/")(0).reverse
 
-    columns = MysqlWriter(config.getString("url"), config.getString("username"), config.getString("password"))
-      .getColWithDataType(db, table).map(_._1)
+    columnWithDataTypes = MysqlWriter(config.getString("url"), config.getString("username"), config.getString("password")).getColWithDataType(db, table)
+
+    columns = columnWithDataTypes.map(_._1)
+
+    if (config.getBoolean("table_filter")) {
+      filterSchema = new Schema {{
+          setConfig(ConfigFactory.parseMap(
+            Map(
+              "schema" -> SchemaUtils.getSchemaString(columnWithDataTypes),
+               "source"->"fields")))
+        }}
+      filterSchema.prepare(spark)
+    }
   }
 
   override def process(df: Dataset[Row]): Unit = {
 
-    var dfFill = df.na.fill("").na.fill(0L).na.fill(0).na.fill(0.0)
+    val tmpdf = config.getBoolean("table_filter") match {
+      case true => filterSchema.process(df.filter(col("tableName").startsWith(config.getString("table"))))
+      case false => df
+    }
+
+    var dfFill = tmpdf.na.fill("").na.fill(0L).na.fill(0).na.fill(0.0)
 
     if (config.getBoolean("include_deletion")) {
       dfFill.cache //获取删除数据
@@ -88,7 +109,7 @@ class Mysql extends BaseOutput {
       dfFill = dfFill.where("actionType!=\"DELETE\"")
     }
 
-    fields = df.schema.fieldNames.intersect(columns)
+    fields = tmpdf.schema.fieldNames.intersect(columns)
     val fieldStr = fields.mkString("(", ",", ")")
 
     val sb = new StringBuffer()
@@ -111,7 +132,7 @@ class Mysql extends BaseOutput {
       insertAcc.add(iterProcess(it,fields,ps))
     })
 
-    println(s"[INFO]insert count: ${insertAcc.value} , time consuming: ${System.currentTimeMillis - startTime}")
+    println(s"[INFO]insert table ${config.getString("table")} count: ${insertAcc.value} , time consuming: ${System.currentTimeMillis - startTime}")
 
     insertAcc.reset
   }
@@ -121,7 +142,6 @@ class Mysql extends BaseOutput {
     var i = 0
     var sum = 0
 
-    println("[INFO] start set prepareStatement")
     while (it.hasNext) {
       val row = it.next
       setPrepareStatement(cols, row, ps)
@@ -137,18 +157,19 @@ class Mysql extends BaseOutput {
     sum
   }
 
-  private def setPrepareStatement(fields:Array[String],row: Row, ps: PreparedStatement): Unit = {
+  private def setPrepareStatement(fields: Array[String], row: Row, ps: PreparedStatement): Unit = {
 
     var p = 1
     val indexs = fields.map(row.fieldIndex(_))
     for (i <- 0 until row.size) {
       if (indexs.contains(i)) {
         row.get(i) match {
-          case v: Short=> ps.setInt(p,v)
+          case v: Short => ps.setInt(p, v)
           case v: Int => ps.setInt(p, v)
           case v: Long => ps.setLong(p, v)
           case v: Float => ps.setFloat(p, v)
           case v: Double => ps.setDouble(p, v)
+          case v: BigDecimal => ps.setBigDecimal(p, v.bigDecimal)
           case v: String => ps.setString(p, v)
           case v: Timestamp => ps.setTimestamp(p, v)
         }
@@ -156,6 +177,5 @@ class Mysql extends BaseOutput {
       }
     }
   }
-
 
 }
