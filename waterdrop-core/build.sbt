@@ -45,7 +45,8 @@ libraryDependencies ++= Seq(
   "ru.yandex.clickhouse" % "clickhouse-jdbc" % "0.1.39" excludeAll (ExclusionRule(organization = "com.fasterxml.jackson.core")),
   "mysql" % "mysql-connector-java" % "5.1.46",
   "org.apache.httpcomponents" % "httpclient" % "4.5.4" % "provided",
-  "org.apache.spark" %% "spark-sql-kafka-0-10" % sparkVersion
+  "org.apache.spark" %% "spark-sql-kafka-0-10" % sparkVersion,
+  "junit" % "junit" % "4.12" % "test"
 )
 
 // For binary compatible conflicts, sbt provides dependency overrides.
