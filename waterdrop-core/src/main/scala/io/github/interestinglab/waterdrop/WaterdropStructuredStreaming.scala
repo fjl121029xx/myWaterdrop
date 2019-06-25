@@ -3,15 +3,10 @@ package io.github.interestinglab.waterdrop
 import io.github.interestinglab.waterdrop.apis._
 import io.github.interestinglab.waterdrop.config._
 import io.github.interestinglab.waterdrop.filter.UdfRegister
-import org.apache.spark.internal.Logging
-import org.apache.spark.sql.streaming.StreamingQueryListener.{
-  QueryProgressEvent,
-  QueryStartedEvent,
-  QueryTerminatedEvent
-}
-import org.apache.spark.sql.streaming.{StreamingQuery, StreamingQueryListener}
-import org.apache.spark.sql.{Dataset, Row, SparkSession}
 import org.apache.kafka.clients.consumer.OffsetOutOfRangeException
+import org.apache.spark.internal.Logging
+import org.apache.spark.sql.streaming.StreamingQuery
+import org.apache.spark.sql.{Dataset, Row, SparkSession}
 
 import scala.collection.JavaConversions._
 import scala.util.{Failure, Success, Try}
