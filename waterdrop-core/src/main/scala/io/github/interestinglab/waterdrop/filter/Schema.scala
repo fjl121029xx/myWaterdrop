@@ -40,6 +40,10 @@ class Schema extends BaseFilter {
   }
 
   override def process(spark: SparkSession, df: Dataset[Row]): Dataset[Row] = {
+    process(df)
+  }
+
+  def process(df: Dataset[Row]): Dataset[Row] = {
 
     var dataFrame = df.withColumn(RowConstant.TMP, from_json(col(conf.getString("source")), schema))
 
