@@ -6,7 +6,7 @@ object SchemaUtils {
 
   def getSchemaString(colWithTypes: List[(String, String)]): String = {
 
-    val map= colWithTypes.map(f => {
+    val map = colWithTypes.map(f => {
       (f._1, correctionDataType(f._2))
     }).toMap
 

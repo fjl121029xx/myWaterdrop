@@ -27,6 +27,10 @@ class Recent extends BaseFilter {
   }
 
   override def process(spark: SparkSession, df: Dataset[Row]): Dataset[Row] = {
+    process(df)
+  }
+
+  def process(df: Dataset[Row]): Dataset[Row] = {
 
     val unionFieldArr = conf.getString("union.fields").split(",")
 

@@ -57,6 +57,11 @@ PLUGINS_DIR=${APP_DIR}/plugins
 DEFAULT_CONFIG=${CONF_DIR}/application.conf
 CONFIG_FILE=${CONFIG_FILE:-$DEFAULT_CONFIG}
 
+if [ ! -f $CONFIG_FILE  ];then
+  echo '[ERROR] conf file not exists!!! exit'
+  exit 1
+fi
+
 DEFAULT_MASTER=local[2]
 MASTER=${MASTER:-$DEFAULT_MASTER}
 
@@ -119,16 +124,26 @@ appname=`cat ${CONFIG_FILE}|grep "spark.app.name"|awk '{print $3}'`
 appname=${appname:1:0-1}
 echo $appname
 
-{
-while :
-do
-  yarnAppInfo=`yarn application -list|grep $appname`
-  if [ ${#yarnAppInfo} -gt 0 ]; then
-    echo `echo $yarnAppInfo|awk '{print $1}'` > ./applicationid
-    break
-  fi
-done
-} &
+if [ "$MASTER" == "yarn" ]; then
+    {
+    while :
+    do
+      sleep 1s
+      yarnAppInfo=`yarn application -list|grep $appname`
+      if [ ${#yarnAppInfo} -gt 0 ]; then
+        echo `echo $yarnAppInfo|awk '{print $1}'` > ./applicationid
+        break
+        exit 2
+      fi
+
+      let i++
+      if [ $i == 30 ]; then
+          break
+          exit 3
+      fi
+    done
+    } &
+fi
 
 ${SPARK_HOME}/bin/spark-submit --class io.github.interestinglab.waterdrop.Waterdrop \
     --name $(getAppName ${CONFIG_FILE}) \
@@ -140,10 +155,13 @@ ${SPARK_HOME}/bin/spark-submit --class io.github.interestinglab.waterdrop.Waterd
     ${FilesDepOpts} \
     ${assemblyJarName} ${CMD_ARGUMENTS}
 
-appid=`cat ./applicationid`
-jobStatus=`yarn application -status ${appid}|grep 'Final-State'|awk '{print $3}'`
 
-if [ $jobStatus != "SUCCEEDED" ]; then
-    echo "[ERROR] job status: $jobStatus"
-    exit 1
+if [ "$MASTER" == "yarn" ]; then
+    appid=`cat ./applicationid`
+    jobStatus=`yarn application -status ${appid}|grep 'Final-State'|awk '{print $3}'`
+
+    if [ $jobStatus != "SUCCEEDED" ]; then
+        echo "[ERROR] job status: $jobStatus"
+        exit 4
+    fi
 fi

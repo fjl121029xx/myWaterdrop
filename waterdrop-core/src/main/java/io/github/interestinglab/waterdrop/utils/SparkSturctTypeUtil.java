@@ -2,10 +2,10 @@ package io.github.interestinglab.waterdrop.utils;
 
 
 import com.alibaba.fastjson.JSONObject;
+import io.github.interestinglab.waterdrop.config.ConfigRuntimeException;
 import org.apache.spark.sql.types.DataType;
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.StructType;
-import io.github.interestinglab.waterdrop.config.ConfigRuntimeException;
 
 import java.util.Map;
 

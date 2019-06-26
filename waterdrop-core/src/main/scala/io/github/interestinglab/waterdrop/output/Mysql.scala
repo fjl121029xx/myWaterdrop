@@ -4,7 +4,7 @@ import java.sql.{PreparedStatement, Timestamp}
 
 import com.typesafe.config.{Config, ConfigFactory}
 import io.github.interestinglab.waterdrop.apis.BaseOutput
-import io.github.interestinglab.waterdrop.filter.Schema
+import io.github.interestinglab.waterdrop.filter.{Recent, Schema}
 import io.github.interestinglab.waterdrop.utils.{MysqlWraper, MysqlWriter, Retryer, SchemaUtils}
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.sql.functions._
@@ -16,12 +16,16 @@ class Mysql extends BaseOutput {
 
   var config: Config = ConfigFactory.empty()
   var table: String = _
+
   var columnWithDataTypes: List[(String, String)] = _
   var columns: List[String] = List.empty
   var fields: Array[String] = _
+
   val retryer = new Retryer
   var mysqlWraper: Broadcast[MysqlWraper] = _
+
   var filterSchema: Schema = _
+  var filterRecent: Recent = _
 
   override def setConfig(config: Config): Unit = {
     this.config = config
@@ -55,7 +59,8 @@ class Mysql extends BaseOutput {
         "include_deletion" -> false,
         "batch.count" -> 100, // insert batch count
         "insert.mode" -> "REPLACE", // INSERT IGNORE or REPLACE
-        "table_filter" -> false
+        "table_filter" -> false,
+        "table_recent_fields" -> ""
       )
     )
 
@@ -83,14 +88,18 @@ class Mysql extends BaseOutput {
         }}
       filterSchema.prepare(spark)
     }
+
+    if (config.getString("table_recent_fields").length > 0){
+      filterRecent = new Recent {{
+          setConfig(ConfigFactory.parseMap(Map("union.fields" -> config.getString("table_recent_fields"))))
+        }}
+    }
   }
 
   override def process(df: Dataset[Row]): Unit = {
 
-    val tmpdf = config.getBoolean("table_filter") match {
-      case true => filterSchema.process(df.filter(col("tableName").startsWith(config.getString("table"))))
-      case false => df
-    }
+    var tmpdf = tableFilter(df)
+    tmpdf = tableRecent(tmpdf)
 
     var dfFill = tmpdf.na.fill("").na.fill(0L).na.fill(0).na.fill(0.0)
 
@@ -132,9 +141,31 @@ class Mysql extends BaseOutput {
       insertAcc.add(iterProcess(it,fields,ps))
     })
 
+    dfFill.unpersist
+
     println(s"[INFO]insert table ${config.getString("table")} count: ${insertAcc.value} , time consuming: ${System.currentTimeMillis - startTime}")
 
     insertAcc.reset
+  }
+
+  /**
+    * 1）根据表名过滤数据
+    * 2) schema转换
+    */
+  private def tableFilter(df: Dataset[Row]): Dataset[Row] = {
+
+    config.getBoolean("table_filter") match {
+      case true => filterSchema.process(df.filter(col("tableName").startsWith(config.getString("table"))))
+      case false => df
+    }
+  }
+
+  private def tableRecent(df: Dataset[Row]): Dataset[Row] = {
+
+    config.getString("table_recent_fields") match {
+      case "" => df
+      case _ => filterRecent.process(df)
+    }
   }
 
   private def iterProcess(it: Iterator[Row], cols: Array[String], ps: PreparedStatement): Int = {
@@ -169,7 +200,6 @@ class Mysql extends BaseOutput {
           case v: Long => ps.setLong(p, v)
           case v: Float => ps.setFloat(p, v)
           case v: Double => ps.setDouble(p, v)
-          case v: BigDecimal => ps.setBigDecimal(p, v.bigDecimal)
           case v: String => ps.setString(p, v)
           case v: Timestamp => ps.setTimestamp(p, v)
         }
