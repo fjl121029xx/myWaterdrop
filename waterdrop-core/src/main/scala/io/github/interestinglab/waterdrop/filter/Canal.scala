@@ -49,9 +49,8 @@ class Canal extends BaseFilter {
 
     }
 
-    val sec = System.currentTimeMillis() / 1000
     canalDf
-      .withColumn("mActionTime", concat(lit(sec), monotonically_increasing_id))
+      .withColumn("mActionTime", monotonically_increasing_id)
       .drop("updatedOriginalFields", "updatedFields", "primaryKeyName", "ts")
 
   }
