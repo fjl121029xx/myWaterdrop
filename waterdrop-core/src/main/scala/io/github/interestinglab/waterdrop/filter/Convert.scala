@@ -47,18 +47,22 @@ class Convert extends BaseFilter {
   }
 
   override def process(spark: SparkSession, df: Dataset[Row]): Dataset[Row] = {
+    process(df)
+  }
+
+  def process(df: Dataset[Row]): Dataset[Row] = {
 
     val srcField = conf.getString("source_field")
     val newType = conf.getString("new_type")
 
     val cdf = conf.getString("value_fields") match {
-          case "" => df
-          case _ => {
-            val cols = conf.getString("value_fields").split(",").map(filed => {
-              if (filed.startsWith("$")) col(filed.substring(1,filed.length)) else lit(filed)
-            })
+      case "" => df
+      case _ => {
+        val cols = conf.getString("value_fields").split(",").map(filed => {
+          if (filed.startsWith("$")) col(filed.substring(1, filed.length)) else lit(filed)
+        })
 
-        df.withColumn(conf.getString("source_field"),concat(cols :_*))
+        df.withColumn(conf.getString("source_field"), concat(cols: _*))
       }
     }
 

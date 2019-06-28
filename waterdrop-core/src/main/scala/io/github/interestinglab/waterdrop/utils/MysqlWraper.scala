@@ -5,7 +5,7 @@ import java.util.Properties
 
 class MysqlWraper(createConn: () => Connection) extends Serializable {
 
-  private lazy val conn = createConn()
+  lazy val conn = createConn()
 
   def getConnection: Connection= conn
 
