@@ -124,27 +124,6 @@ appname=`cat ${CONFIG_FILE}|grep "spark.app.name"|awk '{print $3}'`
 appname=${appname:1:0-1}
 echo $appname
 
-if [ "$MASTER" == "yarn" ]; then
-    {
-    while :
-    do
-      sleep 1s
-      yarnAppInfo=`yarn application -list|grep $appname`
-      if [ ${#yarnAppInfo} -gt 0 ]; then
-        echo `echo $yarnAppInfo|awk '{print $1}'` > ./applicationid
-        break
-        exit 2
-      fi
-
-      let i++
-      if [ $i == 30 ]; then
-          break
-          exit 3
-      fi
-    done
-    } &
-fi
-
 ${SPARK_HOME}/bin/spark-submit --class io.github.interestinglab.waterdrop.Waterdrop \
     --name $(getAppName ${CONFIG_FILE}) \
     --master ${MASTER} \
@@ -157,11 +136,10 @@ ${SPARK_HOME}/bin/spark-submit --class io.github.interestinglab.waterdrop.Waterd
 
 
 if [ "$MASTER" == "yarn" ]; then
-    appid=`cat ./applicationid`
-    jobStatus=`yarn application -status ${appid}|grep 'Final-State'|awk '{print $3}'`
+    jobStatus=`yarn app -appStates ALL -list|grep ${appname}|sort -r|head -1|awk '{print $7}'`
 
     if [ $jobStatus != "SUCCEEDED" ]; then
         echo "[ERROR] job status: $jobStatus"
-        exit 4
+        exit 2
     fi
 fi
