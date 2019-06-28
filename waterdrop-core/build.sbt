@@ -43,7 +43,7 @@ libraryDependencies ++= Seq(
   "com.github.scopt" %% "scopt" % "3.7.0",
   "org.apache.commons" % "commons-compress" % "1.15",
   "ru.yandex.clickhouse" % "clickhouse-jdbc" % "0.1.39" excludeAll (ExclusionRule(organization = "com.fasterxml.jackson.core")),
-  "mysql" % "mysql-connector-java" % "5.1.46",
+  "mysql" % "mysql-connector-java" % "5.1.42",
   "org.apache.httpcomponents" % "httpclient" % "4.5.4" % "provided",
   "org.apache.spark" %% "spark-sql-kafka-0-10" % sparkVersion,
   "junit" % "junit" % "4.12" % "test"
