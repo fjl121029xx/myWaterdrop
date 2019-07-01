@@ -18,10 +18,6 @@ import scala.util.{Failure, Success, Try}
 
 object Waterdrop extends Logging {
 
-  var inputRecords = 0L
-  var inputBytes = 0L
-  var outputWritten = 0L
-  var outputBytes = 0L
 
   def main(args: Array[String]) {
 
@@ -217,6 +213,8 @@ object Waterdrop extends Logging {
       } catch {
         case ex: Exception => throw ex
       }
+
+      ds.unpersist()
 
       streamingInputs.foreach(p => {
         p.afterOutput
