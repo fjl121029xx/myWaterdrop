@@ -40,4 +40,16 @@ object MysqlWraper {
     }
     new MysqlWraper(f)
   }
+
+  def getJdbcConf(username: String, password: String): Properties = {
+
+    new Properties() {{
+        setProperty("user", username)
+        setProperty("password", password)
+        setProperty("autoReconnect", "true")
+        setProperty("preferredTestQuery", "SELECT 1")
+        setProperty("useServerPrepStmts", "false")
+        setProperty("rewriteBatchedStatements", "true")
+      }}
+  }
 }
