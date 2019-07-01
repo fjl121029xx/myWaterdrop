@@ -1,12 +1,12 @@
 package io.github.interestinglab.waterdrop.output
 
-import java.sql.{PreparedStatement, Timestamp}
+import java.sql.{DriverManager, PreparedStatement, Timestamp}
 
+import com.alibaba.fastjson.JSON
 import com.typesafe.config.{Config, ConfigFactory}
 import io.github.interestinglab.waterdrop.apis.BaseOutput
-import io.github.interestinglab.waterdrop.filter.{Recent, Schema}
-import io.github.interestinglab.waterdrop.utils.{MysqlWraper, MysqlWriter, Retryer, SchemaUtils}
-import org.apache.spark.broadcast.Broadcast
+import io.github.interestinglab.waterdrop.filter.{Convert, Recent, Schema}
+import io.github.interestinglab.waterdrop.utils._
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.{Dataset, Row, SparkSession}
 
@@ -22,10 +22,10 @@ class Mysql extends BaseOutput {
   var fields: Array[String] = _
 
   val retryer = new Retryer
-  var mysqlWraper: Broadcast[MysqlWraper] = _
 
   var filterSchema: Schema = _
   var filterRecent: Recent = _
+  var filterConvert: Convert = _
 
   override def setConfig(config: Config): Unit = {
     this.config = config
@@ -59,13 +59,11 @@ class Mysql extends BaseOutput {
         "include_deletion" -> false,
         "batch.count" -> 100, // insert batch count
         "insert.mode" -> "REPLACE", // INSERT IGNORE or REPLACE
-        "table_filter" -> false,
-        "table_recent_fields" -> ""
+        "table_filter" -> false
+        //"table_recent" -> "",
+        //"table_convert" -> ""
       )
     )
-
-    mysqlWraper = spark.sparkContext.broadcast(
-      MysqlWraper(config.getString("url"), config.getString("username"), config.getString("password")))
 
     config = config.withFallback(defaultConfig)
     table = config.getString("table")
@@ -81,27 +79,39 @@ class Mysql extends BaseOutput {
 
     if (config.getBoolean("table_filter")) {
       filterSchema = new Schema {{
-          setConfig(ConfigFactory.parseMap(
-            Map(
-              "schema" -> SchemaUtils.getSchemaString(columnWithDataTypes),
-               "source"->"fields")))
-        }}
+        setConfig(ConfigFactory.parseMap(
+          Map(
+            "schema" -> SchemaUtils.getSchemaString(columnWithDataTypes),
+            "source"->"fields")))
+      }}
       filterSchema.prepare(spark)
     }
 
-    if (config.getString("table_recent_fields").length > 0){
+    if (config.hasPath("table_recent")){
       filterRecent = new Recent {{
-          setConfig(ConfigFactory.parseMap(Map("union.fields" -> config.getString("table_recent_fields"))))
-        }}
+        setConfig(ConfigFactory.parseMap(Map("union.fields" -> config.getString("table_recent"))))
+      }}
+    }
+
+    if (config.hasPath("table_convert")){
+      filterConvert = new Convert {{
+        setConfig(ConfigFactory.parseMap(JSON.parseObject(config.getString("table_convert"))))
+      }}
+      filterConvert.prepare(spark)
     }
   }
 
   override def process(df: Dataset[Row]): Unit = {
 
     var tmpdf = tableFilter(df)
+    tmpdf = tableConvert(tmpdf)
     tmpdf = tableRecent(tmpdf)
 
     var dfFill = tmpdf.na.fill("").na.fill(0L).na.fill(0).na.fill(0.0)
+
+    val urlBroad = df.sparkSession.sparkContext.broadcast(config.getString("url"))
+    val userBroad = df.sparkSession.sparkContext.broadcast(config.getString("username"))
+    val passwdBroad = df.sparkSession.sparkContext.broadcast(config.getString("password"))
 
     if (config.getBoolean("include_deletion")) {
       dfFill.cache //获取删除数据
@@ -112,8 +122,14 @@ class Mysql extends BaseOutput {
       val delSqlBroad = df.sparkSession.sparkContext.broadcast(delSql)
 
       dfFill.where("actionType=\"DELETE\"").foreachPartition(it => {
-        val ps = retryer.execute(mysqlWraper.value.getConnection.prepareStatement(delSqlBroad.value)).asInstanceOf[PreparedStatement]
+
+        val conn = DriverManager.getConnection(urlBroad.value,MysqlWraper.getJdbcConf(userBroad.value,passwdBroad.value))
+        val ps = conn.prepareStatement(delSqlBroad.value)
+
         iterProcess(it, Array(primaryKeyBroad.value), ps)
+
+        retryer.execute(ps.close())
+        retryer.execute(conn.close())
       })
       dfFill = dfFill.where("actionType!=\"DELETE\"")
     }
@@ -137,8 +153,13 @@ class Mysql extends BaseOutput {
     val sqlBroad = df.sparkSession.sparkContext.broadcast(sql)
 
     dfFill.foreachPartition(it => {
-      val ps = retryer.execute(mysqlWraper.value.getConnection.prepareStatement(sqlBroad.value)).asInstanceOf[PreparedStatement]
-      insertAcc.add(iterProcess(it,fields,ps))
+      val conn = DriverManager.getConnection(urlBroad.value, MysqlWraper.getJdbcConf(userBroad.value, passwdBroad.value))
+      val ps = conn.prepareStatement(sqlBroad.value)
+
+      insertAcc.add(iterProcess(it, fields, ps))
+
+      retryer.execute(ps.close())
+      retryer.execute(conn.close())
     })
 
     dfFill.unpersist
@@ -160,11 +181,19 @@ class Mysql extends BaseOutput {
     }
   }
 
+  private def tableConvert(df: Dataset[Row]): Dataset[Row] = {
+
+    config.hasPath("table_convert") match {
+      case true => filterConvert.process(df)
+      case false => df
+    }
+  }
+
   private def tableRecent(df: Dataset[Row]): Dataset[Row] = {
 
-    config.getString("table_recent_fields") match {
-      case "" => df
-      case _ => filterRecent.process(df)
+    config.hasPath("table_recent") match {
+      case true => filterRecent.process(df)
+      case false => df
     }
   }
 
@@ -181,6 +210,7 @@ class Mysql extends BaseOutput {
 
       if (i == config.getInt("batch.count") || (!it.hasNext)) {
         val j = retryer.execute(ps.executeBatch).asInstanceOf[Array[Int]]
+        ps.clearBatch()
         sum += j.length
         i = 0
       }
@@ -200,6 +230,7 @@ class Mysql extends BaseOutput {
           case v: Long => ps.setLong(p, v)
           case v: Float => ps.setFloat(p, v)
           case v: Double => ps.setDouble(p, v)
+          case v: java.math.BigDecimal => ps.setBigDecimal(p, v)
           case v: String => ps.setString(p, v)
           case v: Timestamp => ps.setTimestamp(p, v)
         }
