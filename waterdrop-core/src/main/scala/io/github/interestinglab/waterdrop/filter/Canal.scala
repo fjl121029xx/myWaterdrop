@@ -2,6 +2,7 @@ package io.github.interestinglab.waterdrop.filter
 
 import com.typesafe.config.{Config, ConfigFactory}
 import io.github.interestinglab.waterdrop.apis.BaseFilter
+import org.apache.spark.sql.expressions.UserDefinedFunction
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.{Dataset, Row, SparkSession}
 
@@ -49,9 +50,14 @@ class Canal extends BaseFilter {
 
     }
 
+    val formatMActionTime: UserDefinedFunction = udf(
+      (millis: Long, increasing_id: Long) => millis * 100000 + increasing_id)
+
     canalDf
-      .withColumn("mActionTime", monotonically_increasing_id)
-      .drop("updatedOriginalFields", "updatedFields", "primaryKeyName", "ts")
+      .withColumn("millis", lit(System.currentTimeMillis()))
+      .withColumn("increasing_id", monotonically_increasing_id)
+      .withColumn("mActionTime", formatMActionTime(col("millis"), col("increasing_id")))
+      .drop("updatedOriginalFields", "updatedFields", "primaryKeyName", "ts", "millis", "increasing_id")
 
   }
 
