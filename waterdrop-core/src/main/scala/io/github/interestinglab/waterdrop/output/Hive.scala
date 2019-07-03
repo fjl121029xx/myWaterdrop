@@ -10,7 +10,6 @@ import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.{Dataset, Row, SparkSession}
 
 import scala.collection.JavaConversions._
-import scala.collection.mutable
 
 class Hive extends BaseOutput {
 
@@ -47,8 +46,7 @@ class Hive extends BaseOutput {
       Map(
         "schema_table" -> "bd.tbl_mysql_table_schema",
         "save_mode" -> "error",
-        "serializer" -> "text",
-        "delimiter" -> "\u0001",
+        "serializer" -> "parquet",
         "table_regex" -> ".*",
         "compression" -> "gzip"
       )
@@ -62,55 +60,16 @@ class Hive extends BaseOutput {
 
     import df.sparkSession.implicits._
 
-    val spark = df.sparkSession
-
-    // filter empty dataset
-    val cols = getColNames(spark)
-
-    val delim = conf.getString("delimiter")
-    val tableRegex = conf.getString("table_regex")
-
     // resolve fields value from json to dataframe
-    val schemaDF = getSchemaDF(spark, df, conf.getString("database"), conf.getString("table"))
-
-    // match binlog and hive column
-    val matchMap = getColMatchMap(cols, schemaDF.columns)
+    val schemaDF = getSchemaDF(df.sparkSession, df, conf.getString("database"), conf.getString("table"))
 
     // convert json to row text with delimiter
-    val out_ds = schemaDF
-      .filter($"mTableName".rlike(tableRegex))
-      .map(row => {
-        val sb = new StringBuilder()
-
-        cols.foreach(col => {
-          if (matchMap.contains(col)) {
-            val col_index = matchMap.get(col)
-            // get column value string and replace '\u0001', '\n' to space
-            val colStr = row.get(col_index.get) match {
-              case null => "\\N"
-              case _ =>
-                row
-                  .get(col_index.get)
-                  .toString
-                  .replaceAll("\u0001", " ")
-                  .replaceAll("\n", " ")
-                  .replaceAll("\r", " ")
-                  .replaceAll("\r\n", " ")
-            }
-            sb.append(colStr)
-          } else {
-            sb.append("\\N")
-          }
-          sb.append(delim)
-        })
-        sb.substring(0, sb.length - 1)
-      })
-
-    // write files
-    out_ds.write
+    schemaDF
+      .filter($"mTableName".rlike(conf.getString("table_regex")))
+      .write
       .mode(conf.getString("save_mode"))
       .option("compression", conf.getString("compression"))
-      .text(conf.getString("path"))
+      .parquet(conf.getString("path"))
 
   }
 
@@ -124,7 +83,6 @@ class Hive extends BaseOutput {
     val schemaStr =
       sparkSession
         .sql(s"SELECT mysqlschema FROM $schemaTable WHERE tablename = '$database.$table'")
-        .select("mysqlschema")
         .collect()(0)
         .getString(0)
 
@@ -139,26 +97,5 @@ class Hive extends BaseOutput {
 
     dataFrame.drop(RowConstant.TMP, "fields")
 
-  }
-
-  private def getColMatchMap(cols: List[String], arr: Array[String]): mutable.HashMap[String, Int] = {
-    var map = new mutable.HashMap[String, Int]
-    arr.foreach(key =>
-      if (cols.contains(key.toLowerCase)) {
-        map += key.toLowerCase -> arr.indexOf(key)
-    })
-    map
-  }
-
-  // get hive table column names
-  private def getColNames(sparkSession: SparkSession): List[String] = {
-    sparkSession
-      .sql("desc " + conf.getString("database") + "." + conf.getString("table"))
-      .toDF()
-      .select("col_name")
-      .filter("data_type not in('','data_type') and col_name != 'pt'")
-      .collect()
-      .map(_.get(0).toString)
-      .toList
   }
 }
