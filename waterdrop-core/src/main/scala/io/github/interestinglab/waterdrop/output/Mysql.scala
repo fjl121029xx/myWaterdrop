@@ -8,6 +8,7 @@ import io.github.interestinglab.waterdrop.apis.BaseOutput
 import io.github.interestinglab.waterdrop.filter.{Convert, Recent, Schema}
 import io.github.interestinglab.waterdrop.utils._
 import org.apache.spark.sql.functions._
+import org.apache.spark.sql.types.{NullType, TimestampType}
 import org.apache.spark.sql.{Dataset, Row, SparkSession}
 
 import scala.collection.JavaConversions._
@@ -233,6 +234,11 @@ class Mysql extends BaseOutput {
           case v: java.math.BigDecimal => ps.setBigDecimal(p, v)
           case v: String => ps.setString(p, v)
           case v: Timestamp => ps.setTimestamp(p, v)
+          case null => {
+            if (row.schema.get(i).dataType == TimestampType) {
+              ps.setTimestamp(p, new Timestamp(System.currentTimeMillis()))
+            }
+          }
         }
         p += 1
       }
