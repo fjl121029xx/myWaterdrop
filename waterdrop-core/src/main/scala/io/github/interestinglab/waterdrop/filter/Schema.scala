@@ -1,10 +1,10 @@
 package io.github.interestinglab.waterdrop.filter
 
-import com.alibaba.fastjson.{JSON, JSONObject}
+import com.alibaba.fastjson.JSON
 import com.typesafe.config.{Config, ConfigFactory}
 import io.github.interestinglab.waterdrop.apis.BaseFilter
 import io.github.interestinglab.waterdrop.core.RowConstant
-import io.github.interestinglab.waterdrop.utils.{SchemaUtils, SparkSturctTypeUtil}
+import io.github.interestinglab.waterdrop.utils.SparkSturctTypeUtil
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.{Dataset, Row, SparkSession}
@@ -40,11 +40,7 @@ class Schema extends BaseFilter {
     val defaultConfig = ConfigFactory.parseMap(Map("source" -> RowConstant.RAW_MESSAGE))
     conf = conf.withFallback(defaultConfig)
 
-    if (conf.getAnyRef("schema").isInstanceOf[String]) {
-      schema = SparkSturctTypeUtil.getStructType(schema, JSON.parseObject(conf.getString("schema")))
-    } else {
-      schema = SparkSturctTypeUtil.getStructType(schema, JSON.toJSON(conf.getObject("schema")).asInstanceOf[JSONObject])
-    }
+    schema = SparkSturctTypeUtil.getStructType(schema, JSON.parseObject(conf.getString("schema")))
   }
 
   override def process(spark: SparkSession, df: Dataset[Row]): Dataset[Row] = {
