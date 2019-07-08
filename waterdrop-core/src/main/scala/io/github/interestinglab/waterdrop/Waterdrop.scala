@@ -208,7 +208,9 @@ object Waterdrop extends Logging {
 
       try {
         outputs.foreach(p => {
-          p.process(ds)
+          var fds = ds
+          fds = p.filterProcess(fds)
+          p.process(fds)
         })
       } catch {
         case ex: Exception => throw ex
@@ -248,7 +250,9 @@ object Waterdrop extends Logging {
             ds = f.process(sparkSession, ds)
           }
           outputs.foreach(p => {
-            p.process(ds)
+            var fds = ds
+            fds = p.filterProcess(fds)
+            p.process(fds)
           })
         }
         input.afterBatch(sparkSession)
