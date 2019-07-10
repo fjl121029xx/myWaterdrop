@@ -5,7 +5,7 @@ import com.typesafe.config.ConfigFactory
 import org.apache.spark.sql.{Dataset, Row}
 
 
-class FilterWrapper {
+class FilterWrapper extends Serializable {
 
   var filters: List[BaseFilter] = List.empty
 
