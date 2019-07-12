@@ -5,10 +5,10 @@ import java.sql.{DriverManager, PreparedStatement, Timestamp}
 import com.alibaba.fastjson.JSON
 import com.typesafe.config.{Config, ConfigFactory}
 import io.github.interestinglab.waterdrop.apis.BaseOutput
-import io.github.interestinglab.waterdrop.filter.{Convert, Recent, Schema}
+import io.github.interestinglab.waterdrop.filter.{Convert, Recent, Schema, Sql}
 import io.github.interestinglab.waterdrop.utils._
 import org.apache.spark.sql.functions._
-import org.apache.spark.sql.types.{NullType, TimestampType}
+import org.apache.spark.sql.types.TimestampType
 import org.apache.spark.sql.{Dataset, Row, SparkSession}
 
 import scala.collection.JavaConversions._
@@ -27,6 +27,7 @@ class Mysql extends BaseOutput {
   var filterSchema: Schema = _
   var filterRecent: Recent = _
   var filterConvert: Convert = _
+  var filterSql: Sql = _
 
   override def setConfig(config: Config): Unit = {
     this.config = config
@@ -62,7 +63,8 @@ class Mysql extends BaseOutput {
         "insert.mode" -> "REPLACE", // INSERT IGNORE or REPLACE
         "table_filter" -> false
         //"table_recent" -> "",
-        //"table_convert" -> ""
+        //"table_convert" -> "",
+        //"table_sql" -> ""
       )
     )
 
@@ -100,6 +102,13 @@ class Mysql extends BaseOutput {
       }}
       filterConvert.prepare(spark)
     }
+
+    if (config.hasPath("table_sql")){
+      filterSql = new Sql {{
+        setConfig(ConfigFactory.parseMap(JSON.parseObject(config.getString("table_sql"))))
+      }}
+      filterSql.prepare(spark)
+    }
   }
 
   override def process(df: Dataset[Row]): Unit = {
@@ -107,6 +116,7 @@ class Mysql extends BaseOutput {
     var tmpdf = tableFilter(df)
     tmpdf = tableConvert(tmpdf)
     tmpdf = tableRecent(tmpdf)
+    tmpdf = tableSql(tmpdf)
 
     var dfFill = tmpdf.na.fill("").na.fill(0L).na.fill(0).na.fill(0.0)
 
@@ -194,6 +204,14 @@ class Mysql extends BaseOutput {
 
     config.hasPath("table_recent") match {
       case true => filterRecent.process(df)
+      case false => df
+    }
+  }
+
+  private def tableSql(df: Dataset[Row]): Dataset[Row] = {
+
+    config.hasPath("table_sql") match {
+      case true => filterSql.process(df.sparkSession,df)
       case false => df
     }
   }
