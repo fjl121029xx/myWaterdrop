@@ -61,6 +61,6 @@ if __name__ == '__main__':
         query = 'query.sql = "%s"' % input_query
 
     print "input{"
-    echo_input_jdbc(dbs, str(db_host) + ":" + str(db_port), cf.get("input", "user"), cf.get("input", "passwd"),
+    echo_input_jdbc(dbs, str(db_host) + ":" + str(db_port), cf.get("db", "user"), cf.get("db", "passwd"),
                     query_type, query)
     print "}"

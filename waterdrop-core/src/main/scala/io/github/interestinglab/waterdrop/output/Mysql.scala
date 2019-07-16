@@ -62,6 +62,7 @@ class Mysql extends BaseOutput {
         "batch.count" -> 100, // insert batch count
         "insert.mode" -> "REPLACE", // INSERT IGNORE or REPLACE
         "table_filter" -> false
+        //table_filter_regex -> ""
         //"table_recent" -> "",
         //"table_convert" -> "",
         //"table_sql" -> ""
@@ -187,7 +188,13 @@ class Mysql extends BaseOutput {
   private def tableFilter(df: Dataset[Row]): Dataset[Row] = {
 
     config.getBoolean("table_filter") match {
-      case true => filterSchema.process(df.filter(col("tableName").startsWith(config.getString("table"))))
+      case true => {
+        val condition = config.hasPath("table_filter_regex") match {
+          case true => col("tableName").rlike(config.getString("table_filter_regex"))
+          case false => col("tableName").startsWith(config.getString("table"))
+        }
+        filterSchema.process(df.filter(condition))
+      }
       case false => df
     }
   }
