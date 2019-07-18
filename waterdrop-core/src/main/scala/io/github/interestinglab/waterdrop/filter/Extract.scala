@@ -6,15 +6,21 @@ import io.github.interestinglab.waterdrop.apis.BaseFilter
 import io.github.interestinglab.waterdrop.core.RowConstant
 import io.github.interestinglab.waterdrop.utils.SparkSturctTypeUtil
 import org.apache.spark.sql.functions._
-import org.apache.spark.sql.types.StructType
+import org.apache.spark.sql.types.{ArrayType, StructField, StructType}
 import org.apache.spark.sql.{Dataset, Row, SparkSession}
 
 import scala.collection.JavaConversions._
 
-class Schema extends BaseFilter {
+class Extract extends BaseFilter {
 
   var conf: Config = ConfigFactory.empty()
   var schema = new StructType()
+
+  val param_source = "source"
+  val param_field = "field"
+
+  var source: String = _
+  var field: String = _
 
   override def setConfig(config: Config): Unit = {
     this.conf = config
@@ -23,9 +29,9 @@ class Schema extends BaseFilter {
   override def getConfig(): Config = conf
 
   override def checkConfig(): (Boolean, String) = {
-    conf.hasPath("schema") match {
+    conf.hasPath("field") match {
       case true => (true, "")
-      case false => (false, "please specify [schema] !!!")
+      case false => (false, "please specify [field] !!!")
     }
 
   }
@@ -40,7 +46,13 @@ class Schema extends BaseFilter {
     val defaultConfig = ConfigFactory.parseMap(Map("source" -> RowConstant.RAW_MESSAGE))
     conf = conf.withFallback(defaultConfig)
 
-    schema = SparkSturctTypeUtil.getStructType(schema, JSON.parseObject(conf.getString("schema")))
+    source = conf.getString(param_source)
+    field = conf.getString(param_field)
+
+    schema = StructType(StructField(field, ArrayType(
+      SparkSturctTypeUtil.getStructType(schema, JSON.parseObject(conf.getString("schema"))))) :: Nil)
+
+    println(s"extractor schema: $schema")
   }
 
   override def process(spark: SparkSession, df: Dataset[Row]): Dataset[Row] = {
@@ -49,12 +61,9 @@ class Schema extends BaseFilter {
 
   def process(df: Dataset[Row]): Dataset[Row] = {
 
-    var dataFrame = df.withColumn(RowConstant.TMP, from_json(col(conf.getString("source")), schema))
-
-    schema.foreach(f => {
-      dataFrame = dataFrame.withColumn(f.name, col(RowConstant.TMP)(f.name))
-    })
-
-    dataFrame.drop(RowConstant.TMP, conf.getString("source"))
+    df.withColumn(source, from_json(col(source), schema))
+      .select(explode(col(source)(field)).as(field))
+      .select(col(s"$field.*"))
   }
+
 }

@@ -24,3 +24,4 @@ io.github.interestinglab.waterdrop.filter.Canal
 io.github.interestinglab.waterdrop.filter.Recent
 io.github.interestinglab.waterdrop.filter.Schema
 io.github.interestinglab.waterdrop.filter.Cache
+io.github.interestinglab.waterdrop.filter.Extract
