@@ -6,36 +6,45 @@ import io.github.interestinglab.waterdrop.apis.BaseOutput
 import io.github.interestinglab.waterdrop.core.RowConstant
 import io.github.interestinglab.waterdrop.utils.SparkSturctTypeUtil
 import org.apache.spark.sql.functions.{col, from_json}
-import org.apache.spark.sql.types.StructType
+import org.apache.spark.sql.types.{DataTypes, StructType}
 import org.apache.spark.sql.{Dataset, Row, SparkSession}
 
 import scala.collection.JavaConversions._
 
 class Hive extends BaseOutput {
 
-  val hdfs_prefix: String = "hdfs://"
-  var conf: Config = ConfigFactory.empty
+  final val INPUT_TYPE = "input_type"
+  final val DATABASE = "database"
+  final val TABLE = "table"
+  final val PATH = "path"
+  final val SCHEMA_TABLE = "schema_table"
+  final val SAVE_MODE = "save_mode"
+  final val SERIALIZER = "serializer"
+  final val TABLE_REGEX = "table_regex"
+  final val COMPRESSION = "compression"
+
+  var config: Config = ConfigFactory.empty
 
   override def setConfig(config: Config): Unit = {
-    this.conf = config
+    this.config = config
   }
 
   override def getConfig(): Config = {
-    this.conf
+    this.config
   }
 
   override def checkConfig(): (Boolean, String) = {
-    conf.hasPath("database") && !conf.getString("database").trim.isEmpty ||
-      conf.hasPath("table") && !conf.getString("table").trim.isEmpty ||
-      conf.hasPath("path") && !conf.getString("path").trim.isEmpty match {
+    (config.hasPath(DATABASE) && config.getString(DATABASE).trim.nonEmpty) &&
+      (config.hasPath(TABLE) && config.getString(TABLE).trim.nonEmpty) &&
+      (config.hasPath(PATH) && config.getString(PATH).trim.nonEmpty) match {
       case true => {
-        val path = conf.getString("path")
+        val path = config.getString(PATH)
         path.startsWith("/") match {
           case true => (true, "")
           case false => (false, "invalid path URI, it should be start with '/'")
         }
       }
-      case false => (false, "please specify [database] [table] [path] as non-empty string")
+      case false => (false, "please specify [input_type] [database] [table] [path] as non-empty string")
     }
   }
 
@@ -44,15 +53,16 @@ class Hive extends BaseOutput {
 
     val defaultConfig = ConfigFactory.parseMap(
       Map(
-        "schema_table" -> "bd.tbl_mysql_table_schema",
-        "save_mode" -> "error",
-        "serializer" -> "parquet",
-        "table_regex" -> ".*",
-        "compression" -> "gzip"
+        INPUT_TYPE -> "incre",
+        SCHEMA_TABLE -> "bd.tbl_mysql_table_schema",
+        SAVE_MODE -> "error",
+        SERIALIZER -> "parquet",
+        TABLE_REGEX -> ".*",
+        COMPRESSION -> "gzip"
       )
     )
 
-    conf = conf.withFallback(defaultConfig)
+    config = config.withFallback(defaultConfig)
 
   }
 
@@ -60,26 +70,32 @@ class Hive extends BaseOutput {
 
     import df.sparkSession.implicits._
 
-    // resolve fields value from json to dataframe
-    val schemaDF = getSchemaDF(df.sparkSession, df, conf.getString("database"), conf.getString("table"))
+    val inputDf = df.filter($"mTableName".rlike(config.getString(TABLE_REGEX)))
+
+    val outputDf = config.getString(INPUT_TYPE) match {
+      case "incre" =>
+        schemaDf(df.sparkSession, inputDf, config.getString(DATABASE), config.getString(TABLE))
+      case "total" =>
+        reSchemaDf(df.sparkSession, inputDf, config.getString(DATABASE), config.getString(TABLE))
+      case _ => df.sparkSession.emptyDataFrame
+    }
 
     // convert json to row text with delimiter
-    schemaDF
-      .filter($"mTableName".rlike(conf.getString("table_regex")))
-      .write
-      .mode(conf.getString("save_mode"))
-      .option("compression", conf.getString("compression"))
-      .parquet(conf.getString("path"))
+
+    outputDf.write
+      .mode(config.getString(SAVE_MODE))
+      .option(COMPRESSION, config.getString(COMPRESSION))
+      .option(SERIALIZER, config.getString(SERIALIZER))
+      .save(config.getString(PATH))
 
   }
 
-  private def getSchemaDF(
+  private def getTableSchema(
     sparkSession: SparkSession,
     df: Dataset[Row],
     database: String,
-    table: String): Dataset[Row] = {
-
-    val schemaTable = conf.getString("schema_table")
+    table: String): StructType = {
+    val schemaTable = config.getString(SCHEMA_TABLE)
     val schemaStr =
       sparkSession
         .sql(s"SELECT mysqlschema FROM $schemaTable WHERE tablename = '$database.$table'")
@@ -89,6 +105,12 @@ class Hive extends BaseOutput {
     val schemaJson = JSON.parseObject(schemaStr)
     var schema = new StructType()
     schema = SparkSturctTypeUtil.getStructType(schema, schemaJson)
+    schema
+  }
+
+  private def schemaDf(sparkSession: SparkSession, df: Dataset[Row], database: String, table: String): Dataset[Row] = {
+
+    val schema = getTableSchema(sparkSession, df, database, table)
 
     var dataFrame = df.withColumn(RowConstant.TMP, from_json(col("fields"), schema))
     schema.foreach(f => {
@@ -98,4 +120,24 @@ class Hive extends BaseOutput {
     dataFrame.drop(RowConstant.TMP, "fields")
 
   }
+
+  private def reSchemaDf(
+    sparkSession: SparkSession,
+    df: Dataset[Row],
+    database: String,
+    table: String): Dataset[Row] = {
+
+    val schema_mapping = getTableSchema(sparkSession, df, database, table)
+      .add("mDatabaseName", DataTypes.StringType)
+      .add("mTableName", DataTypes.StringType)
+      .add("mActionType", DataTypes.StringType)
+      .add("mActionTime", DataTypes.LongType)
+      .map(s => s.name -> s.dataType)
+      .toMap
+
+    df.select(df.columns.map { c =>
+      col(c).cast(schema_mapping(c))
+    }: _*)
+  }
+
 }
