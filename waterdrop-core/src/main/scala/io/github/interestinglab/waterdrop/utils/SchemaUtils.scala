@@ -16,7 +16,7 @@ object SchemaUtils {
   private def correctionDataType(dateType: String): String = {
     dateType match {
       case "tinyint" | "smallint" | "mediumint" | "int" => "integer"
-      case "char" | "varchar" | "tinytext" | "text" | "mediumtext" | "longtext" => "string"
+      case "char" | "varchar" | "tinytext" | "text" | "mediumtext" | "longtext" | "varbinary" => "string"
       case "decimal" | "double" => "double"
       case "date" | "time" | "datetime" | "timestamp" => "timestamp"
       case "bigint" => "long"

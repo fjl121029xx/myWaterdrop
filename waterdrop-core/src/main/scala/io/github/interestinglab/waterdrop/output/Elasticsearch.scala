@@ -16,6 +16,11 @@ class Elasticsearch extends BaseOutput {
 
   var config: Config = ConfigFactory.empty()
 
+  val config_index_id = "index_id"
+  val config_index_type = "index_type"
+  val config_index_schema = "index_schema"
+  val config_index_filter_condition = "index_filter_condition"
+
   /**
    * Set Config.
    * */
