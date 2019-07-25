@@ -191,7 +191,7 @@ class Mysql extends BaseOutput {
       case true => {
         val condition = config.hasPath("table_filter_regex") match {
           case true => col("tableName").rlike(config.getString("table_filter_regex"))
-          case false => lower(col("tableName")).startsWith(config.getString("table"))
+          case false => lower(col("tableName")).startsWith(config.getString("table").toLowerCase)
         }
         filterSchema.process(df.filter(condition))
       }
