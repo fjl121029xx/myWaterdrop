@@ -13,9 +13,9 @@ object SchemaUtils {
     JSONObject(map).toString
   }
 
-  private def correctionDataType(dateType: String): String = {
-    dateType match {
-      case "tinyint" | "smallint" | "mediumint" | "int" => "integer"
+  private def correctionDataType(dataType: String): String = {
+    dataType match {
+      case "tinyint" | "smallint" | "mediumint" | "int" | "bit" => "integer"
       case "char" | "varchar" | "tinytext" | "text" | "mediumtext" | "longtext" | "varbinary" => "string"
       case "decimal" | "double" => "double"
       case "date" | "time" | "datetime" | "timestamp" => "timestamp"
