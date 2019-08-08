@@ -7,6 +7,7 @@ import org.junit.Test
 /**
   * @author jiaquanyu 
   */
+//noinspection ScalaStyle
 @Test
 class SchameUtilsTest {
 
@@ -14,7 +15,7 @@ class SchameUtilsTest {
   def getSchemaStringTest: Unit = {
 
     val mysqlWriter = MysqlWriter("jdbc:mysql://192.168.22.63/test","extractor","extractor")
-    val colWithDataType = mysqlWriter.getColWithDataType("test","tbl_saas_order_food")
+    val colWithDataType = mysqlWriter.getColWithDataType("test","tbl_crm_trans_detail")
     println(SchemaUtils.getSchemaString(colWithDataType))
 
   }
