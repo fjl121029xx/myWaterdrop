@@ -1,6 +1,6 @@
 package io.github.interestinglab.waterdrop.output
 
-import java.sql.{DriverManager, PreparedStatement, Timestamp}
+import java.sql.{DriverManager, PreparedStatement, Types}
 
 import com.alibaba.fastjson.JSON
 import com.typesafe.config.{Config, ConfigFactory}
@@ -8,7 +8,7 @@ import io.github.interestinglab.waterdrop.apis.BaseOutput
 import io.github.interestinglab.waterdrop.filter.{Convert, Recent, Schema, Sql}
 import io.github.interestinglab.waterdrop.utils._
 import org.apache.spark.sql.functions._
-import org.apache.spark.sql.types.TimestampType
+import org.apache.spark.sql.types._
 import org.apache.spark.sql.{Dataset, Row, SparkSession}
 
 import scala.collection.JavaConversions._
@@ -119,7 +119,8 @@ class Mysql extends BaseOutput {
     tmpdf = tableRecent(tmpdf)
     tmpdf = tableSql(tmpdf)
 
-    var dfFill = tmpdf.na.fill("").na.fill(0L).na.fill(0).na.fill(0.0)
+    //var dfFill = tmpdf.na.fill("").na.fill(0L).na.fill(0).na.fill(0.0)
+    var dfFill = tmpdf
 
     val urlBroad = df.sparkSession.sparkContext.broadcast(config.getString("url"))
     val userBroad = df.sparkSession.sparkContext.broadcast(config.getString("username"))
@@ -250,21 +251,32 @@ class Mysql extends BaseOutput {
     val indexs = fields.map(row.fieldIndex(_))
     for (i <- 0 until row.size) {
       if (indexs.contains(i)) {
-        row.get(i) match {
-          case v: Short => ps.setInt(p, v)
-          case v: Int => ps.setInt(p, v)
-          case v: Long => ps.setLong(p, v)
-          case v: Float => ps.setFloat(p, v)
-          case v: Double => ps.setDouble(p, v)
-          case v: java.math.BigDecimal => ps.setBigDecimal(p, v)
-          case v: String => ps.setString(p, v)
-          case v: Timestamp => ps.setTimestamp(p, v)
-          case null => {
-            if (row.schema.get(i).dataType == TimestampType) {
-              ps.setTimestamp(p, new Timestamp(System.currentTimeMillis()))
-            }
-          }
+        row.schema.get(i).dataType match {
+          case ShortType => if (row.get(i) != null) ps.setShort(p, row.getShort(i)) else ps.setNull(p, Types.INTEGER)
+          case IntegerType => if (row.get(i) != null) ps.setInt(p, row.getInt(i)) else ps.setNull(p, Types.INTEGER)
+          case LongType => if (row.get(i) != null) ps.setLong(p, row.getLong(i)) else ps.setNull(p, Types.BIGINT)
+          case FloatType => if (row.get(i) != null) ps.setFloat(p, row.getFloat(i)) else ps.setNull(p, Types.FLOAT)
+          case DoubleType => if (row.get(i) != null) ps.setDouble(p, row.getDouble(i)) else ps.setNull(p, Types.DOUBLE)
+          case StringType => ps.setString(p, row.getString(i))
+          case TimestampType => ps.setTimestamp(p, row.getTimestamp(i))
+          case t: DecimalType => ps.setBigDecimal(p, row.getDecimal(i))
         }
+//        row.get(i) match {
+//          case v: Short => ps.setInt(p, v)
+//          case v: Int => ps.setInt(p, v)
+//          case v: Long => ps.setLong(p, v)
+//          case v: Float => ps.setFloat(p, v)
+//          case v: Double => ps.setDouble(p, v)
+//          case v: java.math.BigDecimal => ps.setBigDecimal(p, v)
+//          case v: String => ps.setString(p, v)
+//          case v: Timestamp => ps.setTimestamp(p, v)
+//          case null => {
+//            if (row.schema.get(i).dataType == TimestampType) {
+//              //              ps.setTimestamp(p, new Timestamp(System.currentTimeMillis()))
+//              ps.setTimestamp(p, null)
+//            }
+//          }
+//        }
         p += 1
       }
     }

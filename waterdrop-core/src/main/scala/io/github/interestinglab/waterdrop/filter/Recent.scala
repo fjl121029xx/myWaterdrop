@@ -34,14 +34,24 @@ class Recent extends BaseFilter {
 
     val unionFieldArr = conf.getString("union.fields").split(",")
 
-    val increasingID = "datasets_increasing_id"
-
     val windowSpec = Window.partitionBy(unionFieldArr.map(col(_)): _*)
 
-    df.withColumn(increasingID, monotonically_increasing_id)
-      .withColumn(s"max_${increasingID}", max(col(increasingID)).over(windowSpec))
-      .where(s"$increasingID == max_${increasingID}")
-      .drop(increasingID, s"max_${increasingID}")
+    conf.hasPath("recent_field") match {
+      case true => {
+        val recent_field = conf.getString("recent_field")
+          df.withColumn(s"max_$recent_field", max(col(recent_field)).over(windowSpec))
+          .where(s"$recent_field == max_$recent_field")
+          .drop( s"max_$recent_field")
+      }
+      case false => {
+        val increasingID = "df_increasing_id"
+
+        df.withColumn(increasingID, monotonically_increasing_id)
+          .withColumn(s"max_$increasingID", max(col(increasingID)).over(windowSpec))
+          .where(s"$increasingID == max_$increasingID")
+          .drop(increasingID, s"max_$increasingID")
+      }
+    }
   }
 
 }
