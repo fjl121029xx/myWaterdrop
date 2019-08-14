@@ -219,7 +219,7 @@ class Mysql extends BaseOutput {
   private def tableSql(df: Dataset[Row]): Dataset[Row] = {
 
     config.hasPath("table_sql") match {
-      case true => filterSql.process(df.sparkSession,df)
+      case true => filterSql.process(df.sparkSession, df)
       case false => df
     }
   }
@@ -236,9 +236,14 @@ class Mysql extends BaseOutput {
       i += 1
 
       if (i == config.getInt("batch.count") || (!it.hasNext)) {
-        val j = retryer.execute(ps.executeBatch).asInstanceOf[Array[Int]]
+        try {
+          sum += ps.executeBatch.length
+        } catch {
+          case ex: Exception => {
+            println(s"insert table $table error ,has exception: ${ex.getMessage} ,current timestamp: ${System.currentTimeMillis()}")
+          }
+        }
         ps.clearBatch()
-        sum += j.length
         i = 0
       }
     }

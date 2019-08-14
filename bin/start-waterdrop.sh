@@ -140,7 +140,7 @@ jobStatus=`yarn app -appStates ALL -list|grep $1|sort -r|head -1|awk '{print $7}
 
 if [ $jobStatus == "UNDEFINED" ]; then
     echo 'status: UNDEFINED, attempt...'
-    getFinalStatus $1
+    getYarnAppFinalStatus $1
 elif [ $jobStatus != "SUCCEEDED" ]; then
     echo "[ERROR] job status: $jobStatus"
     exit 2
