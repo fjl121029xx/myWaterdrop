@@ -1,5 +1,7 @@
 package io.github.interestinglab.waterdrop
 
+import java.util.concurrent.{ExecutorService, Future, SynchronousQueue, ThreadPoolExecutor, TimeUnit}
+
 import io.github.interestinglab.waterdrop.apis._
 import io.github.interestinglab.waterdrop.config._
 import io.github.interestinglab.waterdrop.filter.UdfRegister
@@ -10,14 +12,17 @@ import org.apache.spark.SparkConf
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.encoders.RowEncoder
 import org.apache.spark.sql.types.{DataTypes, StructType}
-import org.apache.spark.sql.{Row, SparkSession}
+import org.apache.spark.sql.{Dataset, Row, SparkSession}
 import org.apache.spark.streaming._
 
 import scala.collection.JavaConversions._
+import scala.collection.mutable.ListBuffer
 import scala.util.{Failure, Success, Try}
 
 object Waterdrop extends Logging {
 
+  var threadPool:ExecutorService = _
+  var viewTableMap: Map[String, String] = Map[String, String]()
 
   def main(args: Array[String]) {
 
@@ -156,6 +161,11 @@ object Waterdrop extends Logging {
     filters: List[BaseFilter],
     outputs: List[BaseOutput]): Unit = {
 
+    threadPool = new ThreadPoolExecutor(30,
+      Integer.MAX_VALUE,
+      60L, TimeUnit.SECONDS,
+      new SynchronousQueue[Runnable]())
+
     val sparkConfig = configBuilder.getSparkConfigs
     val duration = sparkConfig.getLong("spark.streaming.batchDuration")
 //    val sparkConf = createSparkConf(configBuilder)
@@ -206,15 +216,15 @@ object Waterdrop extends Logging {
         p.beforeOutput
       })
 
-      try {
-        outputs.foreach(p => {
-          var fds = ds
-          fds = p.filterProcess(fds)
-          p.process(fds)
-        })
-      } catch {
+      val ls: ListBuffer[Future[_]] = ListBuffer()
+      try outputs.foreach(p => {
+        p.setDf(ds)
+        ls.add(threadPool.submit(p))
+      }) catch {
         case ex: Exception => throw ex
       }
+      ls.foreach(_.get)
+      ls.clear()
 
       ds.unpersist()
 
@@ -238,6 +248,9 @@ object Waterdrop extends Logging {
     outputs: List[BaseOutput]): Unit = {
 
     basePrepare(sparkSession, staticInputs, filters, outputs)
+
+    // let static input register as table for later use if needed
+    registerInputTempView(staticInputs, sparkSession)
 
     // when you see this ASCII logo, waterdrop is really started.
     showWaterdropAsciiLogo()
@@ -303,6 +316,47 @@ object Waterdrop extends Logging {
 
       if (!configValid) {
         System.exit(-1) // invalid configuration
+      }
+    }
+  }
+
+  private[waterdrop] def registerInputTempView(staticInputs: List[BaseStaticInput], sparkSession: SparkSession): Unit = {
+    for (input <- staticInputs) {
+      val ds = input.getDataset(sparkSession)
+      registerInputTempView(input, ds)
+    }
+  }
+
+  private[waterdrop] def registerInputTempView(input: BaseStaticInput, ds: Dataset[Row]): Unit = {
+    val config = input.getConfig()
+    config.hasPath("table_name") || config.hasPath("result_table_name") match {
+      case true => {
+        val tableName = config.hasPath("table_name") match {
+          case true => {
+            @deprecated
+            val oldTableName = config.getString("table_name")
+            oldTableName
+          }
+          case false => config.getString("result_table_name")
+        }
+        registerTempView(tableName, ds)
+      }
+
+      case false => {
+        //do nothing
+      }
+    }
+  }
+
+  private[waterdrop] def registerTempView(tableName: String, ds: Dataset[Row]): Unit = {
+    viewTableMap.contains(tableName) match {
+      case true =>
+        throw new ConfigRuntimeException(
+          "Detected duplicated Dataset["
+            + tableName + "], it seems that you configured result_table_name = \"" + tableName + "\" in multiple static inputs")
+      case _ => {
+        ds.createOrReplaceTempView(tableName)
+        viewTableMap += (tableName -> "")
       }
     }
   }
