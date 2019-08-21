@@ -26,6 +26,18 @@ class MysqlWriter(createWriter: () => Statement) extends Serializable {
     lb.toList
   }
 
+  def getTableDefaultValue(dbName: String, tableName: String): Map[String, Object] = {
+
+    val queryDefaultFields = "SELECT COLUMN_NAME,COLUMN_DEFAULT FROM INFORMATION_SCHEMA.COLUMNS " +
+      s"WHERE IS_NULLABLE = 'NO' AND TABLE_NAME = '$tableName' AND table_schema = '$dbName' AND COLUMN_DEFAULT is not null"
+    val rs = writer.executeQuery(queryDefaultFields)
+
+    var map:Map[String,Object] = Map()
+    while (rs.next()) map += ((rs.getString(1), rs.getObject(2)))
+
+    map
+  }
+
   def upsert(sql: String): Unit = {
     try {
       writer.executeUpdate(sql)

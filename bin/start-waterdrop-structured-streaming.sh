@@ -92,8 +92,6 @@ exec ${SPARK_HOME}/bin/spark-submit --class io.github.interestinglab.waterdrop.W
     --name $(getAppName ${CONFIG_FILE}) \
     --master ${MASTER} \
     --deploy-mode ${DEPLOY_MODE} \
-    --driver-java-options "-Djava.security.auth.login.config=./kafka_client_jaas.conf" \
-    --conf "spark.executor.extraJavaOptions=-Djava.security.auth.login.config=./kafka_client_jaas.conf" \
     ${JarDepOpts} \
     ${FilesDepOpts} \
     ${assemblyJarName} ${CMD_ARGUMENTS}
