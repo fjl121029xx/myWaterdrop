@@ -21,11 +21,6 @@ while (( "$#" )); do
       shift 2
       ;;
 
-    -d|--driver-memory)
-      DRIVER_MEMORY=$2
-      shift 2
-      ;;
-
     --) # end argument parsing
       shift
       break
@@ -47,7 +42,13 @@ done
 eval set -- "$PARAMS"
 
 
-BIN_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+if [ "/bin/waterdrop" == $BASH_SOURCE ];then
+    WATERDROP=`whereis waterdrop|awk '{print $2}'|xargs readlink -f`
+    BIN_DIR="$( cd "$( dirname "${WATERDROP}" )" && pwd )"
+else
+    BIN_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+fi
+
 UTILS_DIR=${BIN_DIR}/utils
 APP_DIR=$(dirname ${BIN_DIR})
 CONF_DIR=${APP_DIR}/config
@@ -72,7 +73,12 @@ DEPLOY_MODE=${DEPLOY_MODE:-$DEFAULT_DEPLOY_MODE}
 DEFAULT_METRICS_SINK=false
 METRICS_SINK=${METRICS_SINK:-$DEFAULT_METRICS_SINK}
 
+appName=`cat ${CONFIG_FILE}|grep "spark.app.name"|awk '{print $3}'`
+appName=${appName:1:0-1}
+
 DEFAULT_DRIVER_MEMORY='2g'
+DRIVER_MEMORY=`cat ${CONFIG_FILE}|grep "spark.driver.memory"|grep -v '#'|awk '{print $3}'`
+DRIVER_MEMORY=${DRIVER_MEMORY:1:0-1}
 DRIVER_MEMORY=${DRIVER_MEMORY:-$DEFAULT_DRIVER_MEMORY}
 
 # scan jar dependencies for all plugins
@@ -91,38 +97,17 @@ if [ "$DEPLOY_MODE" == "cluster" ]; then
     ## add config file
     FilesDepOpts="--files ${CONFIG_FILE}"
 
-    ## add kafka sasl conf
-    FilesDepOpts="${FilesDepOpts},${CONF_DIR}/kafka_client_jaas.conf"
-
-    DriverKafkaJavaOption="--conf spark.driver.extraJavaOptions=-Djava.security.auth.login.config=./kafka_client_jaas.conf"
-    ExecutorKafkaJavaOption="--conf spark.executor.extraJavaOptions=-Djava.security.auth.login.config=./kafka_client_jaas.conf"
-    ConfDepOpts="$DriverKafkaJavaOption $ExecutorKafkaJavaOption"
-
-elif [ "$DEPLOY_MODE" == "client" ]; then
-
-    if [ "$MASTER" == "yarn" ]; then
-        FilesDepOpts="--files ${CONF_DIR}/kafka_client_jaas.conf"
-        ExecutorKafkaJavaOption="--conf spark.executor.extraJavaOptions=-Djava.security.auth.login.config=./kafka_client_jaas.conf"
-    else
-        ExecutorKafkaJavaOption="--conf spark.executor.extraJavaOptions=-Djava.security.auth.login.config=${CONF_DIR}/kafka_client_jaas.conf"
-    fi
-
-    DriverKafkaJavaOption="--conf spark.driver.extraJavaOptions=-Djava.security.auth.login.config=${CONF_DIR}/kafka_client_jaas.conf"
-    ConfDepOpts="$DriverKafkaJavaOption $ExecutorKafkaJavaOption"
 fi
 
 assemblyJarName=$(find ${LIB_DIR} -name Waterdrop-*.jar)
 
+echo "[INFO] appName: "$appName
 echo "[INFO] FilesDepOpts: "$FilesDepOpts
 echo "[INFO] assemblyJarName: "$assemblyJarName
 echo "[INFO] ConfDepOpts: "$ConfDepOpts
 echo "[INFO] DriverMemory: "$DRIVER_MEMORY
 
 source ${CONF_DIR}/waterdrop-env.sh
-
-appname=`cat ${CONFIG_FILE}|grep "spark.app.name"|awk '{print $3}'`
-appname=${appname:1:0-1}
-echo $appname
 
 ${SPARK_HOME}/bin/spark-submit --class io.github.interestinglab.waterdrop.Waterdrop \
     --name $(getAppName ${CONFIG_FILE}) \
