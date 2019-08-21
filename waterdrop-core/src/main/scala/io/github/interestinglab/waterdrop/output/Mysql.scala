@@ -13,7 +13,7 @@ import org.apache.spark.sql.{Dataset, Row, SparkSession}
 
 import scala.collection.JavaConversions._
 
-class Mysql extends BaseOutput {
+class Mysql extends BaseOutput{
 
   var config: Config = ConfigFactory.empty()
   var table: String = _
@@ -39,8 +39,8 @@ class Mysql extends BaseOutput {
 
   override def checkConfig(): (Boolean, String) = {
 
-    config.hasPath("url") && config.hasPath("username") && config.hasPath("table")
-    config.hasPath("password") match {
+    config.hasPath("url") && config.hasPath("username") &&
+      config.hasPath("table") && config.hasPath("password") match {
       case true => {
         config.hasPath("include_deletion") match {
           case true => if (config.hasPath("primary_key_filed")) (true, "") else (false, "please specify [primary_key_filed]!!!")
@@ -72,13 +72,14 @@ class Mysql extends BaseOutput {
     config = config.withFallback(defaultConfig)
     table = config.getString("table")
 
-    //get table columns
     val db = config.getString("url")
       .reverse.split('?')(if (config.getString("url").contains("?")) 1 else 0)
       .split("/")(0).reverse
 
-    columnWithDataTypes = MysqlWriter(config.getString("url"), config.getString("username"), config.getString("password")).getColWithDataType(db, table)
+    val mysqlWriter = MysqlWriter(config.getString("url"), config.getString("username"), config.getString("password"))
 
+    //get table columns
+    columnWithDataTypes = mysqlWriter.getColWithDataType(db, table)
     columns = columnWithDataTypes.map(_._1)
 
     if (config.getBoolean("table_filter")) {
@@ -119,7 +120,6 @@ class Mysql extends BaseOutput {
     tmpdf = tableRecent(tmpdf)
     tmpdf = tableSql(tmpdf)
 
-    //var dfFill = tmpdf.na.fill("").na.fill(0L).na.fill(0).na.fill(0.0)
     var dfFill = tmpdf
 
     val urlBroad = df.sparkSession.sparkContext.broadcast(config.getString("url"))
@@ -160,10 +160,10 @@ class Mysql extends BaseOutput {
       case _ => throw new RuntimeException("unknown output_mode,only support [replace] and [insert ignore]")
     }
 
-    val startTime = System.currentTimeMillis()
-
     val insertAcc = df.sparkSession.sparkContext.longAccumulator
     val sqlBroad = df.sparkSession.sparkContext.broadcast(sql)
+
+    val startTime = System.currentTimeMillis
 
     dfFill.foreachPartition(it => {
       val conn = DriverManager.getConnection(urlBroad.value, MysqlWraper.getJdbcConf(userBroad.value, passwdBroad.value))
@@ -266,22 +266,6 @@ class Mysql extends BaseOutput {
           case TimestampType => ps.setTimestamp(p, row.getTimestamp(i))
           case t: DecimalType => ps.setBigDecimal(p, row.getDecimal(i))
         }
-//        row.get(i) match {
-//          case v: Short => ps.setInt(p, v)
-//          case v: Int => ps.setInt(p, v)
-//          case v: Long => ps.setLong(p, v)
-//          case v: Float => ps.setFloat(p, v)
-//          case v: Double => ps.setDouble(p, v)
-//          case v: java.math.BigDecimal => ps.setBigDecimal(p, v)
-//          case v: String => ps.setString(p, v)
-//          case v: Timestamp => ps.setTimestamp(p, v)
-//          case null => {
-//            if (row.schema.get(i).dataType == TimestampType) {
-//              //              ps.setTimestamp(p, new Timestamp(System.currentTimeMillis()))
-//              ps.setTimestamp(p, null)
-//            }
-//          }
-//        }
         p += 1
       }
     }
