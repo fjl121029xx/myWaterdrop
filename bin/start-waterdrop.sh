@@ -42,7 +42,7 @@ done
 eval set -- "$PARAMS"
 
 
-if [ "/bin/waterdrop" == $BASH_SOURCE ];then
+if [[ "/bin/waterdrop" == $BASH_SOURCE || "/usr/bin/waterdrop" == $BASH_SOURCE ]];then
     WATERDROP=`whereis waterdrop|awk '{print $2}'|xargs readlink -f`
     BIN_DIR="$( cd "$( dirname "${WATERDROP}" )" && pwd )"
 else
