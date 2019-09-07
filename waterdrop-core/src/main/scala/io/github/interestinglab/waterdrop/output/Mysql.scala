@@ -12,6 +12,7 @@ import org.apache.spark.sql.types._
 import org.apache.spark.sql.{Dataset, Row, SparkSession}
 
 import scala.collection.JavaConversions._
+import scala.collection.mutable.ListBuffer
 
 class Mysql extends BaseOutput{
 
@@ -183,9 +184,9 @@ class Mysql extends BaseOutput{
   }
 
   /**
-    * 1）根据表名过滤数据
-    * 2) schema转换
-    */
+   * 1）根据表名过滤数据
+   * 2) schema转换
+   */
   private def tableFilter(df: Dataset[Row]): Dataset[Row] = {
 
     config.getBoolean("table_filter") match {
@@ -228,10 +229,12 @@ class Mysql extends BaseOutput{
 
     var i = 0
     var sum = 0
+    val lb = new ListBuffer[String]
 
     while (it.hasNext) {
       val row = it.next
       setPrepareStatement(cols, row, ps)
+      lb.append(ps.toString)
       ps.addBatch()
       i += 1
 
@@ -240,9 +243,12 @@ class Mysql extends BaseOutput{
           sum += ps.executeBatch.length
         } catch {
           case ex: Exception => {
-            println(s"insert table $table error ,has exception: ${ex.getMessage} ,current timestamp: ${System.currentTimeMillis()}")
+            println(
+              s"insert table $table error ,has exception: ${ex.getMessage} ,current timestamp: ${System.currentTimeMillis()}")
+            lb.foreach(println)
           }
         }
+        lb.clear
         ps.clearBatch()
         i = 0
       }
