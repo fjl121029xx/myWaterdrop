@@ -39,7 +39,7 @@ libraryDependencies ++= Seq(
   "commons-lang" % "commons-lang" % "2.6",
   "io.thekraken" % "grok" % "0.1.5",
   "org.apache.kafka" % "kafka-clients" % "1.1.0",
-  "org.elasticsearch" % "elasticsearch-spark-20_2.11" % "5.6.3",
+  "org.elasticsearch" %% "elasticsearch-spark-20" % "6.2.1",
   "com.github.scopt" %% "scopt" % "3.7.0",
   "org.apache.commons" % "commons-compress" % "1.15",
   "ru.yandex.clickhouse" % "clickhouse-jdbc" % "0.1.39" excludeAll (ExclusionRule(organization = "com.fasterxml.jackson.core")),
