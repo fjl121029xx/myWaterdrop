@@ -1,6 +1,6 @@
 package io.github.interestinglab.waterdrop.utils
 
-import java.sql.{Connection, DriverManager, Statement}
+import java.sql.{Connection, DriverManager, SQLException, Statement}
 
 import scala.collection.mutable.ListBuffer
 
@@ -14,7 +14,7 @@ class MysqlWriter(createWriter: () => Statement) extends Serializable {
   def getColWithDataType(dbName: String, tableName: String): List[Tuple2[String, String]] = {
 
     val schemaSql = "SELECT COLUMN_NAME,DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS " +
-      s"WHERE table_name = '$tableName' AND table_schema = '${dbName}'"
+      s"WHERE table_name = '$tableName' AND table_schema = '$dbName'"
 
     val rs = writer.executeQuery(schemaSql)
 
@@ -23,6 +23,8 @@ class MysqlWriter(createWriter: () => Statement) extends Serializable {
     while (rs.next()) {
       lb.append((rs.getString(1), rs.getString(2)))
     }
+    if (lb.isEmpty) throw new SQLException(s"table $dbName.$tableName not exists")
+
     lb.toList
   }
 
