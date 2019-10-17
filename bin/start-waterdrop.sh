@@ -114,6 +114,7 @@ ${SPARK_HOME}/bin/spark-submit --class io.github.interestinglab.waterdrop.Waterd
     --master ${MASTER} \
     --driver-memory ${DRIVER_MEMORY} \
     --deploy-mode ${DEPLOY_MODE} \
+    --driver-java-options "-Dlog4j.configuration=file:${CONF_DIR}/log4j.properties" \
     ${JarDepOpts} \
     ${ConfDepOpts} \
     ${FilesDepOpts} \
@@ -132,6 +133,6 @@ elif [ $jobStatus != "SUCCEEDED" ]; then
 fi
 }
 
-if [ "$MASTER" == "yarn" ]; then
-    getYarnAppFinalStatus $appname
+if [[ "$MASTER" == "yarn" && "$DEPLOY_MODE" == "cluster" ]]; then
+    getYarnAppFinalStatus $appName
 fi
