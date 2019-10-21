@@ -114,25 +114,13 @@ ${SPARK_HOME}/bin/spark-submit --class io.github.interestinglab.waterdrop.Waterd
     --master ${MASTER} \
     --driver-memory ${DRIVER_MEMORY} \
     --deploy-mode ${DEPLOY_MODE} \
-    --driver-java-options "-Dlog4j.configuration=file:${CONF_DIR}/log4j.properties" \
+    --driver-java-options "-XX:+UseParNewGC -XX:+UseConcMarkSweepGC -XX:+CMSParallelRemarkEnabled
+    -XX:+ParallelRefProcEnabled -XX:+CMSClassUnloadingEnabled -Dlog4j.configuration=file:${CONF_DIR}/log4j.properties" \
     ${JarDepOpts} \
     ${ConfDepOpts} \
     ${FilesDepOpts} \
     ${assemblyJarName} ${CMD_ARGUMENTS}
 
-getYarnAppFinalStatus(){
-
-jobStatus=`yarn app -appStates ALL -list|grep $1|sort -r|head -1|awk '{print $7}'`
-
-if [ $jobStatus == "UNDEFINED" ]; then
-    echo 'status: UNDEFINED, attempt...'
-    getYarnAppFinalStatus $1
-elif [ $jobStatus != "SUCCEEDED" ]; then
-    echo "[ERROR] job status: $jobStatus"
-    exit 2
-fi
-}
-
-if [[ "$MASTER" == "yarn" && "$DEPLOY_MODE" == "cluster" ]]; then
-    getYarnAppFinalStatus $appName
+if [ $? != 0 ]; then
+   exit 1
 fi
