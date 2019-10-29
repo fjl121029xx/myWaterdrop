@@ -46,7 +46,8 @@ libraryDependencies ++= Seq(
   "mysql" % "mysql-connector-java" % "5.1.42",
   "org.apache.httpcomponents" % "httpclient" % "4.5.4" % "provided",
   "org.apache.spark" %% "spark-sql-kafka-0-10" % sparkVersion,
-  "junit" % "junit" % "4.12" % "test"
+  "junit" % "junit" % "4.12" % "test",
+  "com.hualala.spark" % "streaming-metrics" % "13.01-SNAPSHOT"
 )
 
 // For binary compatible conflicts, sbt provides dependency overrides.
@@ -76,10 +77,11 @@ antlr4GenListener in Antlr4 := false
 antlr4GenVisitor in Antlr4 := true
 
 publishTo := Some(
-  if (isSnapshot.value)
+  if (isSnapshot.value) {
     Opts.resolver.sonatypeSnapshots
-  else
+  } else {
     Opts.resolver.sonatypeStaging
+  }
 )
 
 assemblyMergeStrategy in assembly := {
