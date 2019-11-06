@@ -5,15 +5,18 @@ import java.util.concurrent.{ExecutorService, Future, SynchronousQueue, ThreadPo
 import io.github.interestinglab.waterdrop.apis._
 import io.github.interestinglab.waterdrop.config._
 import io.github.interestinglab.waterdrop.filter.UdfRegister
+import io.github.interestinglab.waterdrop.output.Mysql
 import io.github.interestinglab.waterdrop.utils.AsciiArt
 import org.apache.commons.lang3.exception.ExceptionUtils
 import org.apache.hadoop.fs.Path
-import org.apache.spark.SparkConf
+import org.apache.spark.{SparkConf, SparkEnv}
 import org.apache.spark.internal.Logging
+import org.apache.spark.metrics.source2.HllStatBatchErrorSource
 import org.apache.spark.sql.catalyst.encoders.RowEncoder
 import org.apache.spark.sql.types.{DataTypes, StructType}
 import org.apache.spark.sql.{Dataset, Row, SparkSession}
 import org.apache.spark.streaming._
+import org.apache.spark.util.LongAccumulator
 
 import scala.collection.JavaConversions._
 import scala.collection.mutable.ListBuffer
@@ -21,7 +24,7 @@ import scala.util.{Failure, Success, Try}
 
 object Waterdrop extends Logging {
 
-  var threadPool:ExecutorService = _
+  var threadPool: ExecutorService = _
   var viewTableMap: Map[String, String] = Map[String, String]()
 
   def main(args: Array[String]) {
@@ -116,26 +119,33 @@ object Waterdrop extends Logging {
     val filters = configBuilder.createFilters
 
 
-    baseCheckConfig(staticInputs,streamingInputs,outputs,filters)
+    baseCheckConfig(staticInputs, streamingInputs, outputs, filters)
 
     process(configBuilder, staticInputs, streamingInputs, filters, outputs)
   }
 
   private def process(
-    configBuilder: ConfigBuilder,
-    staticInputs: List[BaseStaticInput],
-    streamingInputs: List[BaseStreamingInput],
-    filters: List[BaseFilter],
-    outputs: List[BaseOutput]): Unit = {
+                       configBuilder: ConfigBuilder,
+                       staticInputs: List[BaseStaticInput],
+                       streamingInputs: List[BaseStreamingInput],
+                       filters: List[BaseFilter],
+                       outputs: List[BaseOutput]): Unit = {
 
     println("[INFO] loading SparkConf: ")
     val sparkConf = createSparkConf(configBuilder)
+    //=== 20191030   测试用↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
+    sparkConf.setIfMissing("spark.master", "local") //↓
+    sparkConf.setIfMissing("spark.app.name", "haha") //↑
+    //=== ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
+
     sparkConf.getAll.foreach(entry => {
       val (key, value) = entry
       println("\t" + key + " => " + value)
     })
 
-    val sparkSession = SparkSession.builder.config(sparkConf).enableHiveSupport().getOrCreate()
+    val sparkSession = SparkSession.builder.config(sparkConf)
+      //      .enableHiveSupport()
+      .getOrCreate()
 
     // find all user defined UDFs and register in application init
     UdfRegister.findAndRegisterUdfs(sparkSession)
@@ -154,12 +164,12 @@ object Waterdrop extends Logging {
    * Streaming Processing
    **/
   private def streamingProcessing(
-    sparkSession: SparkSession,
-    configBuilder: ConfigBuilder,
-    staticInputs: List[BaseStaticInput],
-    streamingInputs: List[BaseStreamingInput],
-    filters: List[BaseFilter],
-    outputs: List[BaseOutput]): Unit = {
+                                   sparkSession: SparkSession,
+                                   configBuilder: ConfigBuilder,
+                                   staticInputs: List[BaseStaticInput],
+                                   streamingInputs: List[BaseStreamingInput],
+                                   filters: List[BaseFilter],
+                                   outputs: List[BaseOutput]): Unit = {
 
     threadPool = new ThreadPoolExecutor(30,
       Integer.MAX_VALUE,
@@ -168,10 +178,23 @@ object Waterdrop extends Logging {
 
     val sparkConfig = configBuilder.getSparkConfigs
     val duration = sparkConfig.getLong("spark.streaming.batchDuration")
-//    val sparkConf = createSparkConf(configBuilder)
+    //    val sparkConf = createSparkConf(configBuilder)
     val ssc = new StreamingContext(sparkSession.sparkContext, Seconds(duration))
 
-    basePrepare(sparkSession, staticInputs, streamingInputs, filters, outputs)
+    //=== 20101029
+    val sc = ssc.sparkContext
+    logInfo("[Application ID] " + sc.applicationId)
+    val correct_accum = sc.longAccumulator("correct_accum")
+    val error_accum = sc.longAccumulator("error_accum")
+    val sum_accum = sc.longAccumulator("sum_accum")
+
+    val ms = SparkEnv.get.metricsSystem
+    val mySource = new HllStatBatchErrorSource(ssc, correct_accum, error_accum, sum_accum)
+    ms.registerSource(mySource)
+    //=== ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
+
+    //    basePrepare(sparkSession, staticInputs, streamingInputs, filters, outputs)
+    basePrepareWithMetrics(sparkSession, correct_accum, error_accum, sum_accum, staticInputs, streamingInputs, filters, outputs)
 
     // when you see this ASCII logo, waterdrop is really started.
     showWaterdropAsciiLogo()
@@ -239,13 +262,13 @@ object Waterdrop extends Logging {
 
   /**
    * Batch Processing
-    **/
+   **/
   private def batchProcessing(
-    sparkSession: SparkSession,
-    configBuilder: ConfigBuilder,
-    staticInputs: List[BaseStaticInput],
-    filters: List[BaseFilter],
-    outputs: List[BaseOutput]): Unit = {
+                               sparkSession: SparkSession,
+                               configBuilder: ConfigBuilder,
+                               staticInputs: List[BaseStaticInput],
+                               filters: List[BaseFilter],
+                               outputs: List[BaseOutput]): Unit = {
 
     basePrepare(sparkSession, staticInputs, filters, outputs)
 
@@ -280,6 +303,21 @@ object Waterdrop extends Logging {
     for (pluginList <- plugins) {
       for (p <- pluginList) {
         p.prepare(sparkSession)
+      }
+    }
+  }
+
+  private[waterdrop] def basePrepareWithMetrics(sparkSession: SparkSession,
+                                                correct: LongAccumulator,
+                                                error: LongAccumulator,
+                                                sum: LongAccumulator, plugins: List[Plugin]*): Unit = {
+    for (pluginList <- plugins) {
+      for (p <- pluginList) {
+        if (p.isInstanceOf[Mysql]) {
+          p.prepareWithMetrics(sparkSession, correct, error, sum)
+        } else {
+          p.prepare(sparkSession)
+        }
       }
     }
   }

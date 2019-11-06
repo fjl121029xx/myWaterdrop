@@ -3,6 +3,7 @@ package io.github.interestinglab.waterdrop.apis
 import com.typesafe.config.Config
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.SparkSession
+import org.apache.spark.util.LongAccumulator
 
 /**
   * checkConfig --> prepare
@@ -30,7 +31,17 @@ trait Plugin extends Serializable with Logging {
   def name: String = this.getClass.getName
 
   /**
-    * Prepare before running, do things like set config default value, add broadcast variable, accumulator.
-    */
+   * Prepare before running, do things like set config default value, add broadcast variable, accumulator.
+   */
   def prepare(spark: SparkSession): Unit = {}
+
+  /**
+   * Prepare before running, do things like set config default value, add broadcast variable, accumulator.
+   * correct : streaming-metrics accumulator
+   * error : streaming-metrics accumulator
+   * sum : streaming-metrics accumulator
+   */
+  def prepareWithMetrics(spark: SparkSession, correct: LongAccumulator,
+                         error: LongAccumulator,
+                         sum: LongAccumulator): Unit = {}
 }

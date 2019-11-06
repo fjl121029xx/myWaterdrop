@@ -9,8 +9,6 @@ import scala.collection.mutable.ListBuffer
   */
 class MysqlWriter(createWriter: () => Statement) extends Serializable {
 
-  lazy val writer = createWriter()
-
   def getColWithDataType(dbName: String, tableName: String): List[Tuple2[String, String]] = {
 
     val schemaSql = "SELECT COLUMN_NAME,DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS " +
@@ -27,6 +25,8 @@ class MysqlWriter(createWriter: () => Statement) extends Serializable {
 
     lb.toList
   }
+
+  lazy val writer = createWriter()
 
   def getTableDefaultValue(dbName: String, tableName: String): Map[String, Object] = {
 

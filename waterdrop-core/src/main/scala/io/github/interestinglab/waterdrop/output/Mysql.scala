@@ -10,11 +10,12 @@ import io.github.interestinglab.waterdrop.utils._
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.{Dataset, Row, SparkSession}
+import org.apache.spark.util.LongAccumulator
 
 import scala.collection.JavaConversions._
 import scala.collection.mutable.ListBuffer
 
-class Mysql extends BaseOutput{
+class Mysql extends BaseOutput {
 
   var config: Config = ConfigFactory.empty()
   var table: String = _
@@ -84,32 +85,110 @@ class Mysql extends BaseOutput{
     columns = columnWithDataTypes.map(_._1)
 
     if (config.getBoolean("table_filter")) {
-      filterSchema = new Schema {{
-        setConfig(ConfigFactory.parseMap(
-          Map(
-            "schema" -> SchemaUtils.getSchemaString(columnWithDataTypes),
-            "source"->"fields")))
-      }}
+      filterSchema = new Schema {
+        {
+          setConfig(ConfigFactory.parseMap(
+            Map(
+              "schema" -> SchemaUtils.getSchemaString(columnWithDataTypes),
+              "source" -> "fields")))
+        }
+      }
       filterSchema.prepare(spark)
     }
 
-    if (config.hasPath("table_recent")){
-      filterRecent = new Recent {{
-        setConfig(ConfigFactory.parseMap(Map("union.fields" -> config.getString("table_recent"))))
-      }}
+    if (config.hasPath("table_recent")) {
+      filterRecent = new Recent {
+        {
+          setConfig(ConfigFactory.parseMap(Map("union.fields" -> config.getString("table_recent"))))
+        }
+      }
     }
 
-    if (config.hasPath("table_convert")){
-      filterConvert = new Convert {{
-        setConfig(ConfigFactory.parseMap(JSON.parseObject(config.getString("table_convert"))))
-      }}
+    if (config.hasPath("table_convert")) {
+      filterConvert = new Convert {
+        {
+          setConfig(ConfigFactory.parseMap(JSON.parseObject(config.getString("table_convert"))))
+        }
+      }
       filterConvert.prepare(spark)
     }
 
-    if (config.hasPath("table_sql")){
-      filterSql = new Sql {{
-        setConfig(ConfigFactory.parseMap(JSON.parseObject(config.getString("table_sql"))))
-      }}
+    if (config.hasPath("table_sql")) {
+      filterSql = new Sql {
+        {
+          setConfig(ConfigFactory.parseMap(JSON.parseObject(config.getString("table_sql"))))
+        }
+      }
+      filterSql.prepare(spark)
+    }
+  }
+
+  override def prepareWithMetrics(spark: SparkSession, correct: LongAccumulator, error: LongAccumulator, sum: LongAccumulator): Unit = {
+    super.prepareWithMetrics(spark, correct, error, sum)
+
+    val defaultConfig = ConfigFactory.parseMap(
+      Map(
+        "driver" -> "com.mysql.jdbc.driver", // allowed values: overwrite, append, ignore, error
+        "jdbc_output_mode" -> "replace",
+        "include_deletion" -> false,
+        "batch.count" -> 100, // insert batch count
+        "insert.mode" -> "REPLACE", // INSERT IGNORE or REPLACE
+        "table_filter" -> false
+        //table_filter_regex -> ""
+        //"table_recent" -> "",
+        //"table_convert" -> "",
+        //"table_sql" -> ""
+      )
+    )
+
+    config = config.withFallback(defaultConfig)
+    table = config.getString("table")
+
+    val db = config.getString("url")
+      .reverse.split('?')(if (config.getString("url").contains("?")) 1 else 0)
+      .split("/")(0).reverse
+
+    val mysqlWriter = MysqlWriter(config.getString("url"), config.getString("username"), config.getString("password"))
+
+    //get table columns
+    columnWithDataTypes = mysqlWriter.getColWithDataType(db, table)
+    columns = columnWithDataTypes.map(_._1)
+
+    if (config.getBoolean("table_filter")) {
+      filterSchema = new Schema {
+        {
+          setConfig(ConfigFactory.parseMap(
+            Map(
+              "schema" -> SchemaUtils.getSchemaString(columnWithDataTypes),
+              "source" -> "fields")))
+        }
+      }
+      filterSchema.prepare(spark)
+    }
+
+    if (config.hasPath("table_recent")) {
+      filterRecent = new Recent {
+        {
+          setConfig(ConfigFactory.parseMap(Map("union.fields" -> config.getString("table_recent"))))
+        }
+      }
+    }
+
+    if (config.hasPath("table_convert")) {
+      filterConvert = new Convert {
+        {
+          setConfig(ConfigFactory.parseMap(JSON.parseObject(config.getString("table_convert"))))
+        }
+      }
+      filterConvert.prepare(spark)
+    }
+
+    if (config.hasPath("table_sql")) {
+      filterSql = new Sql {
+        {
+          setConfig(ConfigFactory.parseMap(JSON.parseObject(config.getString("table_sql"))))
+        }
+      }
       filterSql.prepare(spark)
     }
   }
@@ -137,7 +216,7 @@ class Mysql extends BaseOutput{
 
       dfFill.where("actionType=\"DELETE\"").foreachPartition(it => {
 
-        val conn = DriverManager.getConnection(urlBroad.value,MysqlWraper.getJdbcConf(userBroad.value,passwdBroad.value))
+        val conn = DriverManager.getConnection(urlBroad.value, MysqlWraper.getJdbcConf(userBroad.value, passwdBroad.value))
         val ps = conn.prepareStatement(delSqlBroad.value)
 
         iterProcess(it, Array(primaryKeyBroad.value), ps)
@@ -171,7 +250,75 @@ class Mysql extends BaseOutput{
       val ps = conn.prepareStatement(sqlBroad.value)
 
       insertAcc.add(iterProcess(it, fields, ps))
+      retryer.execute(ps.close())
+      retryer.execute(conn.close())
+    })
 
+    dfFill.unpersist
+
+    println(s"[INFO]insert table ${config.getString("table")} count: ${insertAcc.value} , time consuming: ${System.currentTimeMillis - startTime}")
+
+    insertAcc.reset
+  }
+
+
+  override def processWithMetrics(df: Dataset[Row], correct: LongAccumulator, error: LongAccumulator, sum: LongAccumulator): Unit = {
+    super.processWithMetrics(df, correct, error, sum)
+    var tmpdf = tableFilter(df)
+    tmpdf = tableConvert(tmpdf)
+    tmpdf = tableRecent(tmpdf)
+    tmpdf = tableSql(tmpdf)
+
+    var dfFill = tmpdf
+
+    val urlBroad = df.sparkSession.sparkContext.broadcast(config.getString("url"))
+    val userBroad = df.sparkSession.sparkContext.broadcast(config.getString("username"))
+    val passwdBroad = df.sparkSession.sparkContext.broadcast(config.getString("password"))
+
+    if (config.getBoolean("include_deletion")) {
+      dfFill.cache //获取删除数据
+      val primaryKey = config.getString("primary_key_filed")
+      val delSql = s"DELETE FROM $table where $primaryKey = ?"
+
+      val primaryKeyBroad = df.sparkSession.sparkContext.broadcast(primaryKey)
+      val delSqlBroad = df.sparkSession.sparkContext.broadcast(delSql)
+
+      dfFill.where("actionType=\"DELETE\"").foreachPartition(it => {
+
+        val conn = DriverManager.getConnection(urlBroad.value, MysqlWraper.getJdbcConf(userBroad.value, passwdBroad.value))
+        val ps = conn.prepareStatement(delSqlBroad.value)
+
+        iterProcess(it, Array(primaryKeyBroad.value), ps)
+
+        retryer.execute(ps.close())
+        retryer.execute(conn.close())
+      })
+      dfFill = dfFill.where("actionType!=\"DELETE\"")
+    }
+
+    fields = tmpdf.schema.fieldNames.intersect(columns)
+    val fieldStr = fields.mkString("(", ",", ")")
+
+    val sb = new StringBuffer()
+    for (_ <- fields.toIndexedSeq) yield sb.append("?")
+    val valueStr = sb.toString.mkString("(", ",", ")")
+
+    val sql = config.getString("jdbc_output_mode") match {
+      case "replace" => s"REPLACE INTO $table$fieldStr VALUES$valueStr"
+      case "insert ignore" => s"INSERT IGNORE INTO $table$fieldStr VALUES$valueStr"
+      case _ => throw new RuntimeException("unknown output_mode,only support [replace] and [insert ignore]")
+    }
+
+    val insertAcc = df.sparkSession.sparkContext.longAccumulator
+    val sqlBroad = df.sparkSession.sparkContext.broadcast(sql)
+
+    val startTime = System.currentTimeMillis
+
+    dfFill.foreachPartition(it => {
+      val conn = DriverManager.getConnection(urlBroad.value, MysqlWraper.getJdbcConf(userBroad.value, passwdBroad.value))
+      val ps = conn.prepareStatement(sqlBroad.value)
+
+      insertAcc.add(iterProcessWithMetrics(it, fields, ps, correct, error, sum))
       retryer.execute(ps.close())
       retryer.execute(conn.close())
     })
@@ -217,6 +364,45 @@ class Mysql extends BaseOutput{
     }
   }
 
+  private def iterProcessWithMetrics(it: Iterator[Row], cols: Array[String], ps: PreparedStatement,
+                                     correct_accumulator: LongAccumulator,
+                                     error_accumulator: LongAccumulator,
+                                     sum_accumulator: LongAccumulator): Int = {
+
+    var i = 0
+    var sum = 0
+    val lb = new ListBuffer[String]
+
+    while (it.hasNext) {
+      val row = it.next
+      setPrepareStatement(cols, row, ps)
+      lb.append(ps.toString)
+      ps.addBatch()
+      i += 1
+
+      if (i == config.getInt("batch.count") || (!it.hasNext)) {
+        try {
+          val result = ps.executeBatch
+          result.foreach(i => if (i > 0 || i == -2) correct_accumulator.add(1L) else error_accumulator.add(1L))
+          sum += result.length
+          sum_accumulator.add(result.length * 1L)
+        } catch {
+          case ex: Exception => {
+            println(
+              s"insert table $table error ,has exception: ${ex.getMessage} ,current timestamp: ${System.currentTimeMillis()}")
+            lb.foreach(println)
+            error_accumulator.add(lb.length * 1L)
+            sum_accumulator.add(lb.length * 1L)
+          }
+        }
+        lb.clear
+        ps.clearBatch()
+        i = 0
+      }
+    }
+    sum
+  }
+
   private def tableSql(df: Dataset[Row]): Dataset[Row] = {
 
     config.hasPath("table_sql") match {
@@ -237,7 +423,6 @@ class Mysql extends BaseOutput{
       lb.append(ps.toString)
       ps.addBatch()
       i += 1
-
       if (i == config.getInt("batch.count") || (!it.hasNext)) {
         try {
           sum += ps.executeBatch.length
