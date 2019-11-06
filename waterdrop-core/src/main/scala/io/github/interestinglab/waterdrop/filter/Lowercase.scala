@@ -39,6 +39,9 @@ class Lowercase extends BaseFilter {
   }
 
   override def process(spark: SparkSession, df: Dataset[Row]): Dataset[Row] = {
-    df.withColumn(conf.getString("target_field"), lower(col(conf.getString("source_field"))))
+    conf.getString("source_field").equals("df.schema") match {
+      case true => df.select(df.columns.map(x =>col(x).as(x.toLowerCase)) :_*)
+      case false => df.withColumn(conf.getString("target_field"), lower(col(conf.getString("source_field"))))
+    }
   }
 }
