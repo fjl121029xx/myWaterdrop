@@ -216,6 +216,7 @@ class Mysql extends BaseOutput {
 
       dfFill.where("actionType=\"DELETE\"").foreachPartition(it => {
 
+
         val conn = DriverManager.getConnection(urlBroad.value, MysqlWraper.getJdbcConf(userBroad.value, passwdBroad.value))
         val ps = conn.prepareStatement(delSqlBroad.value)
 
@@ -318,7 +319,17 @@ class Mysql extends BaseOutput {
       val conn = DriverManager.getConnection(urlBroad.value, MysqlWraper.getJdbcConf(userBroad.value, passwdBroad.value))
       val ps = conn.prepareStatement(sqlBroad.value)
 
-      insertAcc.add(iterProcessWithMetrics(it, fields, ps, correct, error, sum))
+
+      try{
+        conn.setAutoCommit(false)
+        insertAcc.add(iterProcessWithMetrics(it, fields, ps, correct, error, sum))
+        conn.commit()
+      } catch {
+        case exe:Exception=>
+          exe.printStackTrace()
+      }
+
+
       retryer.execute(ps.close())
       retryer.execute(conn.close())
     })
@@ -439,6 +450,10 @@ class Mysql extends BaseOutput {
       }
     }
     sum
+  }
+
+  private def reInsertBythr(): Unit ={
+
   }
 
   private def setPrepareStatement(fields: Array[String], row: Row, ps: PreparedStatement): Unit = {
