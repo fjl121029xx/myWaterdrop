@@ -9,6 +9,7 @@ import io.github.interestinglab.waterdrop.output.Mysql
 import io.github.interestinglab.waterdrop.utils.AsciiArt
 import org.apache.commons.lang3.exception.ExceptionUtils
 import org.apache.hadoop.fs.Path
+import org.apache.log4j.{Level, Logger}
 import org.apache.spark.{SparkConf, SparkEnv}
 import org.apache.spark.internal.Logging
 import org.apache.spark.metrics.source2.HllStatBatchErrorSource
@@ -26,6 +27,9 @@ object Waterdrop extends Logging {
 
   var threadPool: ExecutorService = _
   var viewTableMap: Map[String, String] = Map[String, String]()
+
+//  Logger.getLogger("org.apache.spark").setLevel(Level.DEBUG)
+//  Logger.getLogger("org.apache.eclipse.jetty.server").setLevel(Level.DEBUG)
 
   def main(args: Array[String]) {
 

@@ -1,13 +1,16 @@
 package io.github.interestinglab.waterdrop.utils
 
+import java.sql.Connection
+
 /**
  * task retry executor
+ *
  * @author jiaquanyu
  *
  */
 class Retryer extends Serializable {
 
-  private var MAX_RETRY_COUNT = 10
+   var MAX_RETRY_COUNT = 10
 
   def this(maxRetryCount: Int) {
     this()
@@ -22,18 +25,17 @@ class Retryer extends Serializable {
 
     while (!wasApplied && retryCount <= MAX_RETRY_COUNT) {
       try {
-        result = Some(anyFail)
-        wasApplied = true
-
+          result = Some(anyFail)
+          wasApplied = true
       } catch {
         case ex: Exception =>
+          ex.printStackTrace()
           retryCount += 1
-
+          ex.printStackTrace()
           if (retryCount == MAX_RETRY_COUNT) {
             println("[ERROR] task failed!!!")
             throw ex
           }
-
           Thread.sleep(5000)
           println("error: " + ex.getMessage + "\npreparing for a " + retryCount + " attempt")
       }

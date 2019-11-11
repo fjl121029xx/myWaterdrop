@@ -1,8 +1,10 @@
 package io.github.interestinglab.waterdrop.output
 
-import java.sql.{DriverManager, PreparedStatement, Types}
+import java.sql.{DriverManager, PreparedStatement, SQLException, SQLTimeoutException, Types}
+import java.util.concurrent.CompletableFuture
 
 import com.alibaba.fastjson.JSON
+import com.mysql.jdbc.exceptions.MySQLNonTransientConnectionException
 import com.typesafe.config.{Config, ConfigFactory}
 import io.github.interestinglab.waterdrop.apis.BaseOutput
 import io.github.interestinglab.waterdrop.filter.{Convert, Recent, Schema, Sql}
@@ -12,6 +14,7 @@ import org.apache.spark.sql.types._
 import org.apache.spark.sql.{Dataset, Row, SparkSession}
 import org.apache.spark.util.LongAccumulator
 
+import scala.util.control._
 import scala.collection.JavaConversions._
 import scala.collection.mutable.ListBuffer
 
@@ -272,9 +275,10 @@ class Mysql extends BaseOutput {
 
     var dfFill = tmpdf
 
-    val urlBroad = df.sparkSession.sparkContext.broadcast(config.getString("url"))
-    val userBroad = df.sparkSession.sparkContext.broadcast(config.getString("username"))
-    val passwdBroad = df.sparkSession.sparkContext.broadcast(config.getString("password"))
+    val sparkSession = df.sparkSession
+    val urlBroad = sparkSession.sparkContext.broadcast(config.getString("url"))
+    val userBroad = sparkSession.sparkContext.broadcast(config.getString("username"))
+    val passwdBroad = sparkSession.sparkContext.broadcast(config.getString("password"))
 
     if (config.getBoolean("include_deletion")) {
       dfFill.cache //获取删除数据
@@ -318,22 +322,23 @@ class Mysql extends BaseOutput {
     dfFill.foreachPartition(it => {
       val conn = DriverManager.getConnection(urlBroad.value, MysqlWraper.getJdbcConf(userBroad.value, passwdBroad.value))
       val ps = conn.prepareStatement(sqlBroad.value)
+      try {
 
-
-      try{
-        conn.setAutoCommit(false)
-        insertAcc.add(iterProcessWithMetrics(it, fields, ps, correct, error, sum))
-        conn.commit()
+        val map = Map(
+          "url" -> urlBroad.value,
+          "user" -> userBroad.value,
+          "passwd" -> passwdBroad.value,
+          "sql" -> sqlBroad.value
+        )
+        insertAcc.add(iterProcessWithMetrics(it, fields, ps, correct, error, sum,
+          map))
       } catch {
-        case exe:Exception=>
+        case exe: Exception =>
           exe.printStackTrace()
       }
-
-
       retryer.execute(ps.close())
       retryer.execute(conn.close())
     })
-
     dfFill.unpersist
 
     println(s"[INFO]insert table ${config.getString("table")} count: ${insertAcc.value} , time consuming: ${System.currentTimeMillis - startTime}")
@@ -375,38 +380,68 @@ class Mysql extends BaseOutput {
     }
   }
 
-  private def iterProcessWithMetrics(it: Iterator[Row], cols: Array[String], ps: PreparedStatement,
+  private def iterProcessWithMetrics(it: Iterator[Row],
+                                     cols: Array[String],
+                                     ps: PreparedStatement,
                                      correct_accumulator: LongAccumulator,
                                      error_accumulator: LongAccumulator,
-                                     sum_accumulator: LongAccumulator): Int = {
-
+                                     sum_accumulator: LongAccumulator,
+                                     mysqlmap: Map[String, String]): Int = {
     var i = 0
     var sum = 0
     val lb = new ListBuffer[String]
+    val runningRow = new ListBuffer[Row]
 
     while (it.hasNext) {
       val row = it.next
       setPrepareStatement(cols, row, ps)
       lb.append(ps.toString)
+      runningRow.append(row)
+
       ps.addBatch()
       i += 1
 
       if (i == config.getInt("batch.count") || (!it.hasNext)) {
+
+        val conn = ps.getConnection
+        val save_point = conn.setSavepoint("start_batch")
         try {
-          val result = ps.executeBatch
+          conn.setAutoCommit(false)
+
+          val result = ps.executeBatch()
+          conn.commit()
           result.foreach(i => if (i > 0 || i == -2) correct_accumulator.add(1L) else error_accumulator.add(1L))
-          sum += result.length
           sum_accumulator.add(result.length * 1L)
+
+          sum += result.length
         } catch {
-          case ex: Exception => {
+          case ex: SQLException => {
             println(
               s"insert table $table error ,has exception: ${ex.getMessage} ,current timestamp: ${System.currentTimeMillis()}")
-            lb.foreach(println)
-            error_accumulator.add(lb.length * 1L)
-            sum_accumulator.add(lb.length * 1L)
+            ex.printStackTrace()
+
+            try {
+              try {
+                conn.rollback(save_point)
+              } catch {
+                case e: Exception =>
+                  e.printStackTrace()
+              }
+
+              val mr = new MysqlRetryer(mysqlmap, runningRow, cols)
+              val result = mr.execute()
+              result.foreach(i => if (i > 0 || i == -2) correct_accumulator.add(1L) else error_accumulator.add(1L))
+              sum_accumulator.add(result.length * 1L)
+
+            } catch {
+              case e: Exception =>
+                e.printStackTrace()
+            }
           }
         }
+
         lb.clear
+        runningRow.clear()
         ps.clearBatch()
         i = 0
       }
@@ -450,10 +485,6 @@ class Mysql extends BaseOutput {
       }
     }
     sum
-  }
-
-  private def reInsertBythr(): Unit ={
-
   }
 
   private def setPrepareStatement(fields: Array[String], row: Row, ps: PreparedStatement): Unit = {
