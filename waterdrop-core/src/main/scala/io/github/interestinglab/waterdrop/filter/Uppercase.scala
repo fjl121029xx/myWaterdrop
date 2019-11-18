@@ -13,14 +13,14 @@ class Uppercase extends BaseFilter {
 
   /**
    * Set Config.
-   * */
+   **/
   override def setConfig(config: Config): Unit = {
     this.conf = config
   }
 
   /**
    * Get Config.
-   * */
+   **/
   override def getConfig(): Config = {
     this.conf
   }
@@ -39,6 +39,10 @@ class Uppercase extends BaseFilter {
   }
 
   override def process(spark: SparkSession, df: Dataset[Row]): Dataset[Row] = {
-    df.withColumn(conf.getString("target_field"), upper(col(conf.getString("source_field"))))
+
+    //    df.withColumn(conf.getString("target_field"), upper(col(conf.getString("source_field"))))
+    val cols = df.columns
+    val lookup = cols .map(f => (f, f.toUpperCase)).toMap
+    df.select(df.columns.map(c => col(c).as(lookup.getOrElse(c, c))): _*)
   }
 }

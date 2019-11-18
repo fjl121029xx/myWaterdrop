@@ -28,10 +28,13 @@ object Waterdrop extends Logging {
   var threadPool: ExecutorService = _
   var viewTableMap: Map[String, String] = Map[String, String]()
 
-//  Logger.getLogger("org.apache.spark").setLevel(Level.DEBUG)
-//  Logger.getLogger("org.apache.eclipse.jetty.server").setLevel(Level.DEBUG)
+  //  Logger.getLogger("org.apache.spark").setLevel(Level.DEBUG)
+  //  Logger.getLogger("org.apache.eclipse.jetty.server").setLevel(Level.DEBUG)
 
   def main(args: Array[String]) {
+
+    System.setProperty("user.name", "lijunjie1")
+    System.setProperty("HADOOP_USER_NAME", "lijunjie1")
 
     CommandLineUtils.parser.parse(args, CommandLineArgs()) match {
       case Some(cmdArgs) => {
@@ -146,9 +149,11 @@ object Waterdrop extends Logging {
       val (key, value) = entry
       println("\t" + key + " => " + value)
     })
+    System.setProperty("user.name", "hadoop")
+    System.setProperty("HADOOP_USER_NAME", "hadoop")
 
     val sparkSession = SparkSession.builder.config(sparkConf)
-      //      .enableHiveSupport()
+//      .enableHiveSupport()
       .getOrCreate()
 
     // find all user defined UDFs and register in application init
