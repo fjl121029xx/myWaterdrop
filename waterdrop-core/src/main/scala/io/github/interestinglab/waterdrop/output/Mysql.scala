@@ -2,7 +2,8 @@ package io.github.interestinglab.waterdrop.output
 
 import java.io.EOFException
 import java.net.SocketTimeoutException
-import java.sql.{DriverManager, PreparedStatement, SQLException, SQLTimeoutException, Types}
+import java.sql.{BatchUpdateException, DriverManager, PreparedStatement, SQLException, SQLTimeoutException, Types}
+import java.util
 import java.util.concurrent.CompletableFuture
 
 import com.alibaba.fastjson.JSON
@@ -132,8 +133,8 @@ class Mysql extends BaseOutput {
     }
   }
 
-  override def prepareWithMetrics(spark: SparkSession, correct: LongAccumulator, error: LongAccumulator, sum: LongAccumulator): Unit = {
-    super.prepareWithMetrics(spark, correct, error, sum)
+  override def prepareWithMetrics(spark: SparkSession, accu_map: util.HashMap[String, LongAccumulator]): Unit = {
+    super.prepareWithMetrics(spark, accu_map)
 
     val defaultConfig = ConfigFactory.parseMap(
       Map(
@@ -274,8 +275,8 @@ class Mysql extends BaseOutput {
   }
 
 
-  override def processWithMetrics(df: Dataset[Row], correct: LongAccumulator, error: LongAccumulator, sum: LongAccumulator): Unit = {
-    super.processWithMetrics(df, correct, error, sum)
+  override def processWithMetrics(df: Dataset[Row], accu_map: util.HashMap[String, LongAccumulator]): Unit = {
+    super.processWithMetrics(df, accu_map)
     var tmpdf = tableFilter(df)
     tmpdf = tableConvert(tmpdf)
     tmpdf = tableRecent(tmpdf)
@@ -283,10 +284,9 @@ class Mysql extends BaseOutput {
 
     var dfFill = tmpdf
 
-    dfFill.show()
-    dfFill.withColumn("sex",new Column("sex"))
-    dfFill.show()
-
+    //    dfFill.show()
+    //    dfFill.withColumn("sex", new Column("sex"))
+    //    dfFill.show()
 
     val sparkSession = df.sparkSession
     val urlBroad = sparkSession.sparkContext.broadcast(config.getString("url"))
@@ -331,8 +331,8 @@ class Mysql extends BaseOutput {
     val sqlBroad = df.sparkSession.sparkContext.broadcast(sql)
 
     val startTime = System.currentTimeMillis
-//    dfFill.show()
-//    if(dfFill.schema.fieldNames)
+    //    dfFill.show()
+    //    if(dfFill.schema.fieldNames)
 
     dfFill.foreachPartition(it => {
       val conn = DriverManager.getConnection(urlBroad.value, MysqlWraper.getJdbcConf(userBroad.value, passwdBroad.value))
@@ -345,7 +345,7 @@ class Mysql extends BaseOutput {
           "passwd" -> passwdBroad.value,
           "sql" -> sqlBroad.value
         )
-        insertAcc.add(iterProcessWithMetrics(it, fields, ps, correct, error, sum,
+        insertAcc.add(iterProcessWithMetrics(it, fields, ps, accu_map,
           map))
       } catch {
         case exe: Exception =>
@@ -398,14 +398,16 @@ class Mysql extends BaseOutput {
   private def iterProcessWithMetrics(it: Iterator[Row],
                                      cols: Array[String],
                                      ps: PreparedStatement,
-                                     correct_accumulator: LongAccumulator,
-                                     error_accumulator: LongAccumulator,
-                                     sum_accumulator: LongAccumulator,
+                                     accu_map: util.HashMap[String, LongAccumulator],
                                      mysqlmap: Map[String, String]): Int = {
     var i = 0
     var sum = 0
     val lb = new ListBuffer[String]
     val runningRow = new ListBuffer[Row]
+
+    val correct_accumulator = accu_map.get(this.getClass.getSimpleName + "_correct_accu")
+    val error_accumulator = accu_map.get(this.getClass.getSimpleName + "_error_accu")
+    val sum_accumulator = accu_map.get(this.getClass.getSimpleName + "_sum_accu")
 
     while (it.hasNext) {
       val row = it.next
@@ -444,8 +446,16 @@ class Mysql extends BaseOutput {
               } catch {
                 case e: Exception =>
                   e.printStackTrace()
+                  error_accumulator.add(runningRow.length * 1L)
+                  sum_accumulator.add(runningRow.length * 1L)
               }
+            } else {
+              error_accumulator.add(runningRow.length * 1L)
+              sum_accumulator.add(runningRow.length * 1L)
             }
+          }
+          case e: BatchUpdateException => {
+            e.printStackTrace()
           }
         }
 

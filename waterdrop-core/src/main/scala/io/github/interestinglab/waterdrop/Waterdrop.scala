@@ -1,5 +1,6 @@
 package io.github.interestinglab.waterdrop
 
+import java.util
 import java.util.concurrent.{ExecutorService, Future, SynchronousQueue, ThreadPoolExecutor, TimeUnit}
 
 import io.github.interestinglab.waterdrop.apis._
@@ -28,13 +29,7 @@ object Waterdrop extends Logging {
   var threadPool: ExecutorService = _
   var viewTableMap: Map[String, String] = Map[String, String]()
 
-  //  Logger.getLogger("org.apache.spark").setLevel(Level.DEBUG)
-  //  Logger.getLogger("org.apache.eclipse.jetty.server").setLevel(Level.DEBUG)
-
   def main(args: Array[String]) {
-
-    System.setProperty("user.name", "lijunjie1")
-    System.setProperty("HADOOP_USER_NAME", "lijunjie1")
 
     CommandLineUtils.parser.parse(args, CommandLineArgs()) match {
       case Some(cmdArgs) => {
@@ -153,7 +148,7 @@ object Waterdrop extends Logging {
     System.setProperty("HADOOP_USER_NAME", "hadoop")
 
     val sparkSession = SparkSession.builder.config(sparkConf)
-//      .enableHiveSupport()
+      //      .enableHiveSupport()
       .getOrCreate()
 
     // find all user defined UDFs and register in application init
@@ -193,17 +188,24 @@ object Waterdrop extends Logging {
     //=== 20101029
     val sc = ssc.sparkContext
     logInfo("[Application ID] " + sc.applicationId)
+    logInfo("[Application NAME] " + sc.appName)
+
     val correct_accum = sc.longAccumulator("correct_accum")
     val error_accum = sc.longAccumulator("error_accum")
     val sum_accum = sc.longAccumulator("sum_accum")
 
     val ms = SparkEnv.get.metricsSystem
-    val mySource = new HllStatBatchErrorSource(ssc, correct_accum, error_accum, sum_accum)
+    val outputNames = outputs.map(_.getClass.getSimpleName)
+    val mySource = new HllStatBatchErrorSource(ssc, outputNames)
     ms.registerSource(mySource)
+
+    val accu_map: util.HashMap[String, LongAccumulator] = mySource.getAllAccu()
+    //    println(outputs)
+    //    outputs.foreach(f => println(f.getClass.getSimpleName))
     //=== ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
 
     //    basePrepare(sparkSession, staticInputs, streamingInputs, filters, outputs)
-    basePrepareWithMetrics(sparkSession, correct_accum, error_accum, sum_accum, staticInputs, streamingInputs, filters, outputs)
+    basePrepareWithMetrics(sparkSession, accu_map, staticInputs, streamingInputs, filters, outputs)
 
     // when you see this ASCII logo, waterdrop is really started.
     showWaterdropAsciiLogo()
@@ -317,13 +319,11 @@ object Waterdrop extends Logging {
   }
 
   private[waterdrop] def basePrepareWithMetrics(sparkSession: SparkSession,
-                                                correct: LongAccumulator,
-                                                error: LongAccumulator,
-                                                sum: LongAccumulator, plugins: List[Plugin]*): Unit = {
+                                                accu_map: util.HashMap[String, LongAccumulator], plugins: List[Plugin]*): Unit = {
     for (pluginList <- plugins) {
       for (p <- pluginList) {
         if (p.isInstanceOf[Mysql]) {
-          p.prepareWithMetrics(sparkSession, correct, error, sum)
+          p.prepareWithMetrics(sparkSession, accu_map)
         } else {
           p.prepare(sparkSession)
         }

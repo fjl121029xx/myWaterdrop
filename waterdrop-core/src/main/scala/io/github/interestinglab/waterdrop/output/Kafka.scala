@@ -80,6 +80,7 @@ class Kafka extends BaseOutput {
     config.getString("serializer") match {
       case "text" => {
         df.foreach { row =>
+
           kafkaSink.get.value.send(config.getString("topic"), row.mkString)
         }
       }

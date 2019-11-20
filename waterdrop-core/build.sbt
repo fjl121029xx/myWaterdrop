@@ -47,7 +47,7 @@ libraryDependencies ++= Seq(
   "org.apache.httpcomponents" % "httpclient" % "4.5.4" % "provided",
   "org.apache.spark" %% "spark-sql-kafka-0-10" % sparkVersion,
   "junit" % "junit" % "4.12" % "test",
-  "com.hualala.spark" % "streaming-metrics" % "15.2-SNAPSHOT"
+  "com.hualala.spark" % "streaming-metrics" % "17.4-SNAPSHOT"
 )
 
 // For binary compatible conflicts, sbt provides dependency overrides.

@@ -1,5 +1,7 @@
 package io.github.interestinglab.waterdrop.apis
 
+import java.util
+
 import com.typesafe.config.Config
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.SparkSession
@@ -41,7 +43,5 @@ trait Plugin extends Serializable with Logging {
    * error : streaming-metrics accumulator
    * sum : streaming-metrics accumulator
    */
-  def prepareWithMetrics(spark: SparkSession, correct: LongAccumulator,
-                         error: LongAccumulator,
-                         sum: LongAccumulator): Unit = {}
+  def prepareWithMetrics(spark: SparkSession, accu_map: util.HashMap[String, LongAccumulator]): Unit = {}
 }

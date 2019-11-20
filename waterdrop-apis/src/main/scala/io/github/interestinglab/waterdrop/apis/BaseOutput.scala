@@ -1,5 +1,7 @@
 package io.github.interestinglab.waterdrop.apis
 
+import java.util
+
 import org.apache.spark.sql.{Dataset, Row, SparkSession}
 import org.apache.spark.util.LongAccumulator
 
@@ -8,14 +10,16 @@ abstract class BaseOutput extends Plugin with Runnable {
   var df: Dataset[Row] = _
 
   var filterWrapper: FilterWrapper = new FilterWrapper
-  var correct_accumulator: LongAccumulator = _
-  var error_accumulator: LongAccumulator = _
-  var sum_accumulator: LongAccumulator = _
+  //  var correct_accumulator: LongAccumulator = _
+  //  var error_accumulator: LongAccumulator = _
+  //  var sum_accumulator: LongAccumulator = _
+
+  var accu_map: util.HashMap[String, LongAccumulator] = _
 
   def process(df: Dataset[Row]): Unit = {}
 
   //=== 20191029
-  def processWithMetrics(df: Dataset[Row], correct: LongAccumulator, error: LongAccumulator, sum: LongAccumulator): Unit = {}
+  def processWithMetrics(df: Dataset[Row], accu_map: util.HashMap[String, LongAccumulator]): Unit = {}
 
   override def prepare(spark: SparkSession): Unit = {
 
@@ -25,13 +29,11 @@ abstract class BaseOutput extends Plugin with Runnable {
   }
 
   //=== 20191029
-  override def prepareWithMetrics(spark: SparkSession, correct: LongAccumulator, error: LongAccumulator, sum: LongAccumulator): Unit = {
+  override def prepareWithMetrics(spark: SparkSession, accu_map: util.HashMap[String, LongAccumulator]): Unit = {
     if (getConfig().hasPath("filters")) {
       filterWrapper.initFilters(getConfig().getString("filters"))
     }
-    correct_accumulator = correct
-    error_accumulator = error
-    sum_accumulator = sum
+    this.accu_map = accu_map
   }
 
   def filterProcess(df: Dataset[Row]): Dataset[Row] = {
@@ -44,16 +46,24 @@ abstract class BaseOutput extends Plugin with Runnable {
 
   override def run(): Unit = {
     val fds = filterProcess(df)
-    if (checkAccumulator) {
+    if (checkAccumulator(this.getClass.getSimpleName)) {
       this.process(fds)
     } else {
-      this.processWithMetrics(fds, correct_accumulator, error_accumulator, sum_accumulator)
+      this.processWithMetrics(fds, accu_map)
     }
 
   }
 
-  def checkAccumulator: Boolean = {
-    correct_accumulator == null && error_accumulator == null && sum_accumulator == null
+  def checkAccumulator(output_name: String): Boolean = {
+    var i = 0
+    val acIts = accu_map.keySet().iterator()
+    while (acIts.hasNext) {
+      val accu_name = acIts.next()
+      if (accu_name.startsWith(output_name)) {
+        i += 1
+      }
+    }
+    i != 3
   }
 
 
