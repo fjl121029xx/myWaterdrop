@@ -18,6 +18,7 @@ class MysqlRetryer(mysqlmap: Map[String, String],
     var wasApplied = false
     var result = None: Option[Array[Int]]
 
+    println("-，-  开始超时重试执行 ...ing")
     while (!wasApplied && retryCount <= MAX_RETRY_COUNT) {
       try {
         val conn = DriverManager.getConnection(mysqlmap("url"), MysqlWraper.getJdbcConf(mysqlmap("user"), mysqlmap("passwd")))
@@ -30,17 +31,19 @@ class MysqlRetryer(mysqlmap: Map[String, String],
           ps.addBatch()
         }
         try {
+          println("-，- 重试执行 ...ing,  第" + retryCount + "次 ")
           result = Some(ps.executeBatch())
           wasApplied = true
+          println("-，- 重试执行 ...ing,  第" + retryCount + "次 成功")
         } catch {
           case e: Exception =>
             e.printStackTrace()
+            println("-，- 重试执行 ...ing,  第" + retryCount + "次 失败")
             retryCount += 1
         }
       } catch {
         case e: Exception => e.printStackTrace()
       }
-
     }
     result.get
   }
