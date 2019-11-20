@@ -21,7 +21,6 @@ class MysqlRetryer(mysqlmap: Map[String, String],
     while (!wasApplied && retryCount <= MAX_RETRY_COUNT) {
       try {
         val conn = DriverManager.getConnection(mysqlmap("url"), MysqlWraper.getJdbcConf(mysqlmap("user"), mysqlmap("passwd")))
-
         val ps = conn.prepareStatement(mysqlmap("sql"))
 
         val itsRow = runningRow.iterator
@@ -30,22 +29,12 @@ class MysqlRetryer(mysqlmap: Map[String, String],
           setPrepareStatement(cols, r, ps)
           ps.addBatch()
         }
-        conn.setAutoCommit(false)
-        val sp = conn.setSavepoint("mysql_retruer_" + retryCount + "_sp")
         try {
           result = Some(ps.executeBatch())
-          conn.commit()
           wasApplied = true
         } catch {
           case e: Exception =>
             e.printStackTrace()
-            try {
-              conn.rollback(sp)
-            } catch {
-              case e: Exception =>
-                e.printStackTrace()
-            }
-
             retryCount += 1
         }
       } catch {

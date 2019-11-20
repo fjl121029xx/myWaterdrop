@@ -1,17 +1,20 @@
 package io.github.interestinglab.waterdrop.output
 
+import java.io.EOFException
+import java.net.SocketTimeoutException
 import java.sql.{DriverManager, PreparedStatement, SQLException, SQLTimeoutException, Types}
 import java.util.concurrent.CompletableFuture
 
 import com.alibaba.fastjson.JSON
 import com.mysql.jdbc.exceptions.MySQLNonTransientConnectionException
+import com.mysql.jdbc.exceptions.jdbc4.CommunicationsException
 import com.typesafe.config.{Config, ConfigFactory}
 import io.github.interestinglab.waterdrop.apis.BaseOutput
 import io.github.interestinglab.waterdrop.filter.{Convert, Recent, Schema, Sql}
 import io.github.interestinglab.waterdrop.utils._
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types._
-import org.apache.spark.sql.{Dataset, Row, SparkSession}
+import org.apache.spark.sql.{Column, Dataset, Row, SparkSession}
 import org.apache.spark.util.LongAccumulator
 
 import scala.util.control._
@@ -24,8 +27,11 @@ class Mysql extends BaseOutput {
   var table: String = _
 
   var columnWithDataTypes: List[(String, String)] = _
+  var columnWithDefaultValue: Map[String, Object] = _
+
   var columns: List[String] = List.empty
   var fields: Array[String] = _
+  var defaultFiledValue: Map[String, String] = _
 
   val retryer = new Retryer
 
@@ -156,6 +162,8 @@ class Mysql extends BaseOutput {
     //get table columns
     columnWithDataTypes = mysqlWriter.getColWithDataType(db, table)
     columns = columnWithDataTypes.map(_._1)
+    //Map(id -> 0, name -> 阿萨德, score -> 0.00, sex -> 1)
+    columnWithDefaultValue = mysqlWriter.getTableDefaultValue(db, table)
 
     if (config.getBoolean("table_filter")) {
       filterSchema = new Schema {
@@ -275,6 +283,11 @@ class Mysql extends BaseOutput {
 
     var dfFill = tmpdf
 
+    dfFill.show()
+    dfFill.withColumn("sex",new Column("sex"))
+    dfFill.show()
+
+
     val sparkSession = df.sparkSession
     val urlBroad = sparkSession.sparkContext.broadcast(config.getString("url"))
     val userBroad = sparkSession.sparkContext.broadcast(config.getString("username"))
@@ -318,6 +331,8 @@ class Mysql extends BaseOutput {
     val sqlBroad = df.sparkSession.sparkContext.broadcast(sql)
 
     val startTime = System.currentTimeMillis
+//    dfFill.show()
+//    if(dfFill.schema.fieldNames)
 
     dfFill.foreachPartition(it => {
       val conn = DriverManager.getConnection(urlBroad.value, MysqlWraper.getJdbcConf(userBroad.value, passwdBroad.value))
@@ -403,39 +418,33 @@ class Mysql extends BaseOutput {
 
       if (i == config.getInt("batch.count") || (!it.hasNext)) {
 
-        val conn = ps.getConnection
-        val save_point = conn.setSavepoint("start_batch")
         try {
-          conn.setAutoCommit(false)
-
           val result = ps.executeBatch()
-          conn.commit()
+
           result.foreach(i => if (i > 0 || i == -2) correct_accumulator.add(1L) else error_accumulator.add(1L))
           sum_accumulator.add(result.length * 1L)
 
           sum += result.length
         } catch {
-          case ex: SQLException => {
+          case ex@(_: CommunicationsException | _: SocketTimeoutException | _: EOFException | _: SQLException) => {
             println(
               s"insert table $table error ,has exception: ${ex.getMessage} ,current timestamp: ${System.currentTimeMillis()}")
             ex.printStackTrace()
 
-            try {
+            if (ex.getCause.isInstanceOf[CommunicationsException] ||
+              ex.getCause.isInstanceOf[SocketTimeoutException] ||
+              ex.getCause.isInstanceOf[EOFException]
+            ) {
               try {
-                conn.rollback(save_point)
+                val mr = new MysqlRetryer(mysqlmap, runningRow, cols)
+                val result = mr.execute()
+                result.foreach(i => if (i > 0 || i == -2) correct_accumulator.add(1L) else error_accumulator.add(1L))
+                sum_accumulator.add(result.length * 1L)
+
               } catch {
                 case e: Exception =>
                   e.printStackTrace()
               }
-
-              val mr = new MysqlRetryer(mysqlmap, runningRow, cols)
-              val result = mr.execute()
-              result.foreach(i => if (i > 0 || i == -2) correct_accumulator.add(1L) else error_accumulator.add(1L))
-              sum_accumulator.add(result.length * 1L)
-
-            } catch {
-              case e: Exception =>
-                e.printStackTrace()
             }
           }
         }
