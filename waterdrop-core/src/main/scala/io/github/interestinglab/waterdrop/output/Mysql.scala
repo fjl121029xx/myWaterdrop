@@ -281,12 +281,7 @@ class Mysql extends BaseOutput {
     tmpdf = tableConvert(tmpdf)
     tmpdf = tableRecent(tmpdf)
     tmpdf = tableSql(tmpdf)
-
     var dfFill = tmpdf
-
-    //    dfFill.show()
-    //    dfFill.withColumn("sex", new Column("sex"))
-    //    dfFill.show()
 
     val sparkSession = df.sparkSession
     val urlBroad = sparkSession.sparkContext.broadcast(config.getString("url"))
@@ -335,7 +330,8 @@ class Mysql extends BaseOutput {
     //    if(dfFill.schema.fieldNames)
 
     dfFill.foreachPartition(it => {
-      val conn = DriverManager.getConnection(urlBroad.value, MysqlWraper.getJdbcConf(userBroad.value, passwdBroad.value))
+      val conn = MysqlRetryer.getConnByRetryer(urlBroad.value, userBroad.value, passwdBroad.value).get
+      //      val conn = DriverManager.getConnection(urlBroad.value, MysqlWraper.getJdbcConf(userBroad.value, passwdBroad.value))
       val ps = conn.prepareStatement(sqlBroad.value)
       try {
 
@@ -405,9 +401,9 @@ class Mysql extends BaseOutput {
     val lb = new ListBuffer[String]
     val runningRow = new ListBuffer[Row]
 
-    val correct_accumulator = accu_map.get(this.getClass.getSimpleName + "_correct_accu")
-    val error_accumulator = accu_map.get(this.getClass.getSimpleName + "_error_accu")
-    val sum_accumulator = accu_map.get(this.getClass.getSimpleName + "_sum_accu")
+    val correct_accumulator = accu_map.get(this.getClass.getSimpleName.toLowerCase() + "_" + this.getConfig().getString("tabke") + "_correct_accu")
+    val error_accumulator = accu_map.get(this.getClass.getSimpleName.toLowerCase() + "_" + this.getConfig().getString("tabke") + "_error_accu")
+    val sum_accumulator = accu_map.get(this.getClass.getSimpleName.toLowerCase() + "_" + this.getConfig().getString("tabke") + "_sum_accu")
 
     while (it.hasNext) {
       val row = it.next
@@ -448,6 +444,7 @@ class Mysql extends BaseOutput {
                   e.printStackTrace()
                   error_accumulator.add(runningRow.length * 1L)
                   sum_accumulator.add(runningRow.length * 1L)
+                  lb.foreach(println)
               }
             } else {
               error_accumulator.add(runningRow.length * 1L)

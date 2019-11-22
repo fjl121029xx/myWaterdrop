@@ -56,15 +56,17 @@ abstract class BaseOutput extends Plugin with Runnable {
 
   def checkAccumulator(output_name: String): Boolean = {
     var i = 0
-    val acIts = accu_map.keySet().iterator()
-    while (acIts.hasNext) {
-      val accu_name = acIts.next()
-      if (accu_name.startsWith(output_name)) {
-        i += 1
+    if (accu_map != null) {
+      val acIts = accu_map.keySet().iterator()
+      while (acIts.hasNext) {
+        val accu_name = acIts.next()
+        if (accu_name.startsWith(output_name)) {
+          i += 1
+        }
       }
+      i != 3
+    } else {
+      false
     }
-    i != 3
   }
-
-
 }

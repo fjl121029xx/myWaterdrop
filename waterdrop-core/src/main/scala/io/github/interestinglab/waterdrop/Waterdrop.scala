@@ -3,10 +3,11 @@ package io.github.interestinglab.waterdrop
 import java.util
 import java.util.concurrent.{ExecutorService, Future, SynchronousQueue, ThreadPoolExecutor, TimeUnit}
 
+import com.typesafe.config.Config
 import io.github.interestinglab.waterdrop.apis._
 import io.github.interestinglab.waterdrop.config._
 import io.github.interestinglab.waterdrop.filter.UdfRegister
-import io.github.interestinglab.waterdrop.output.Mysql
+import io.github.interestinglab.waterdrop.output.{Kafka, Mysql}
 import io.github.interestinglab.waterdrop.utils.AsciiArt
 import org.apache.commons.lang3.exception.ExceptionUtils
 import org.apache.hadoop.fs.Path
@@ -148,7 +149,7 @@ object Waterdrop extends Logging {
     System.setProperty("HADOOP_USER_NAME", "hadoop")
 
     val sparkSession = SparkSession.builder.config(sparkConf)
-      //      .enableHiveSupport()
+      .enableHiveSupport()
       .getOrCreate()
 
     // find all user defined UDFs and register in application init
@@ -162,6 +163,16 @@ object Waterdrop extends Logging {
         streamingProcessing(sparkSession, configBuilder, staticInputs, streamingInputs, filters, outputs)
       }
     }
+  }
+
+  def getOutputAlias(output: String, config: Config): String = {
+    var name = "none"
+    if (output.equalsIgnoreCase("io.github.interestinglab.waterdrop.output.Mysql")) {
+      name = config.getString("table")
+    } else if (output.equalsIgnoreCase("io.github.interestinglab.waterdrop.output.Kafka")) {
+      name = config.getString("topic")
+    }
+    name
   }
 
   /**
@@ -190,19 +201,13 @@ object Waterdrop extends Logging {
     logInfo("[Application ID] " + sc.applicationId)
     logInfo("[Application NAME] " + sc.appName)
 
-    val correct_accum = sc.longAccumulator("correct_accum")
-    val error_accum = sc.longAccumulator("error_accum")
-    val sum_accum = sc.longAccumulator("sum_accum")
-
     val ms = SparkEnv.get.metricsSystem
-    val outputNames = outputs.map(_.getClass.getSimpleName)
+    val outputNames = outputs.map(f => f.getClass.getSimpleName.toLowerCase() + "_" + getOutputAlias(f.name, f.getConfig()))
     val mySource = new HllStatBatchErrorSource(ssc, outputNames)
     ms.registerSource(mySource)
 
     val accu_map: util.HashMap[String, LongAccumulator] = mySource.getAllAccu()
-    //    println(outputs)
-    //    outputs.foreach(f => println(f.getClass.getSimpleName))
-    //=== ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
+    //=== ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑ ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
 
     //    basePrepare(sparkSession, staticInputs, streamingInputs, filters, outputs)
     basePrepareWithMetrics(sparkSession, accu_map, staticInputs, streamingInputs, filters, outputs)
@@ -322,7 +327,7 @@ object Waterdrop extends Logging {
                                                 accu_map: util.HashMap[String, LongAccumulator], plugins: List[Plugin]*): Unit = {
     for (pluginList <- plugins) {
       for (p <- pluginList) {
-        if (p.isInstanceOf[Mysql]) {
+        if (p.isInstanceOf[Mysql] || p.isInstanceOf[Kafka]) {
           p.prepareWithMetrics(sparkSession, accu_map)
         } else {
           p.prepare(sparkSession)

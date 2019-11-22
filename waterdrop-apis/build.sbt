@@ -1,5 +1,5 @@
 name := "Waterdrop-apis"
-version := "1.2.1"
+version := "1.2.3"
 organization := "io.github.interestinglab.waterdrop"
 
 scalaVersion := "2.11.8"
@@ -17,16 +17,16 @@ val providedDeps = Option(System.getProperty("providedDeps")).getOrElse("false")
 //val providedDeps = "true"
 //println("providedDeps = true")
 
-providedDeps match {
-  case "true" => {
-    println("providedDeps = true")
-    libraryDependencies ++= providedDependencies.map(_ % "provided")
-  }
-  case "false" => {
-    println("providedDeps = false")
-    libraryDependencies ++= providedDependencies.map(_ % "compile")
-  }
-}
+//providedDeps match {
+//  case "true" => {
+//    println("providedDeps = true")
+libraryDependencies ++= providedDependencies.map(_ % "provided")
+//  }
+//  case "false" => {
+//    println("providedDeps = false")
+//    libraryDependencies ++= providedDependencies.map(_ % "compile")
+//  }
+//}
 
 libraryDependencies ++= Seq(
   "com.typesafe" % "config" % "1.3.1",
