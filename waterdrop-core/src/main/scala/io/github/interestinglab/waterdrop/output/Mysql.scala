@@ -205,7 +205,7 @@ class Mysql extends BaseOutput {
 
       //            insertAcc.add(iterProcess(it, fields, ps, retryMap))
 
-      val mysqlMetrics = new MysqlOutputMetrics(config, ps, it, fields, accumulators, retryMap)
+      val mysqlMetrics = new MysqlOutputMetrics(it, fields, ps, retryMap, ms = this)
       insertAcc.add(mysqlMetrics.iterProcess())
 
       retryer.execute(ps.close())
