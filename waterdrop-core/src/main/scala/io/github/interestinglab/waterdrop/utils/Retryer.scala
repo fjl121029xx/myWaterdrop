@@ -36,7 +36,8 @@ class Retryer extends Serializable {
             println("[ERROR] task failed!!!")
             throw ex
           }
-          Thread.sleep(5000)
+
+
           println("error: " + ex.getMessage + "\npreparing for a " + retryCount + " attempt")
       }
       wasApplied

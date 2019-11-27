@@ -14,6 +14,7 @@ import scala.collection.mutable.ListBuffer
 import scala.collection.JavaConversions._
 
 class Oracle18c extends BaseOutput {
+
   val config_param: Seq[String] = Seq("url", "user", "password", "table")
 
   var config: Config = ConfigFactory.empty()
@@ -44,8 +45,6 @@ class Oracle18c extends BaseOutput {
 
   override def process(df: Dataset[Row]): Unit = {
 
-
-//    df.printSchema()
     val sc = df.sparkSession.sparkContext
 
     val bc_url = sc.broadcast(config.getString("url"))
@@ -142,7 +141,6 @@ class Oracle18c extends BaseOutput {
         } catch {
           case e: Exception =>
             e.printStackTrace()
-          //            println(ps.toString)
         }
 
         ps.clearBatch
@@ -153,9 +151,7 @@ class Oracle18c extends BaseOutput {
   }
 
   private def setPrepareStatement(fields: Array[String], row: Row, ps: PreparedStatement): Unit = {
-    //    println(row)
     var p = 1
-
     val zColumns = columns.zipWithIndex
 
     for ((cname: String, v: Int) <- zColumns) {

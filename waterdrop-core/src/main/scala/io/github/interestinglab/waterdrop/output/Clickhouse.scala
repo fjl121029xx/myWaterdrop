@@ -160,7 +160,7 @@ class Clickhouse extends BaseOutput {
     sql
   }
 
-  private def renderStatement(fields: util.List[String], item: Row, statement: ClickHousePreparedStatement): Unit = {
+    def renderStatement(fields: util.List[String], item: Row, statement: ClickHousePreparedStatement): Unit = {
     for (i <- 0 until fields.size()) {
       val field = fields.get(i)
       val fieldType = schema(field)

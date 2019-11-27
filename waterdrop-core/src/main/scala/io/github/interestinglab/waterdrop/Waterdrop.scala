@@ -7,6 +7,7 @@ import com.typesafe.config.Config
 import io.github.interestinglab.waterdrop.apis._
 import io.github.interestinglab.waterdrop.config._
 import io.github.interestinglab.waterdrop.filter.UdfRegister
+import io.github.interestinglab.waterdrop.metrics.OutputMetrics
 import io.github.interestinglab.waterdrop.output.{Kafka, Mysql}
 import io.github.interestinglab.waterdrop.utils.AsciiArt
 import org.apache.commons.lang3.exception.ExceptionUtils
@@ -136,20 +137,16 @@ object Waterdrop extends Logging {
 
     println("[INFO] loading SparkConf: ")
     val sparkConf = createSparkConf(configBuilder)
-    //=== 20191030   测试用↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
     sparkConf.setIfMissing("spark.master", "local") //↓
     sparkConf.setIfMissing("spark.app.name", "haha") //↑
-    //=== ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
 
     sparkConf.getAll.foreach(entry => {
       val (key, value) = entry
       println("\t" + key + " => " + value)
     })
-    System.setProperty("user.name", "hadoop")
-    System.setProperty("HADOOP_USER_NAME", "hadoop")
 
     val sparkSession = SparkSession.builder.config(sparkConf)
-      .enableHiveSupport()
+      //      .enableHiveSupport()
       .getOrCreate()
 
     // find all user defined UDFs and register in application init
@@ -165,15 +162,6 @@ object Waterdrop extends Logging {
     }
   }
 
-  def getOutputAlias(output: String, config: Config): String = {
-    var name = "none"
-    if (output.equalsIgnoreCase("io.github.interestinglab.waterdrop.output.Mysql")) {
-      name = config.getString("table")
-    } else if (output.equalsIgnoreCase("io.github.interestinglab.waterdrop.output.Kafka")) {
-      name = config.getString("topic")
-    }
-    name
-  }
 
   /**
    * Streaming Processing
@@ -202,15 +190,14 @@ object Waterdrop extends Logging {
     logInfo("[Application NAME] " + sc.appName)
 
     val ms = SparkEnv.get.metricsSystem
-    val outputNames = outputs.map(f => f.getClass.getSimpleName.toLowerCase() + "_" + getOutputAlias(f.name, f.getConfig()))
+    val outputNames = outputs.map(f => f.getClass.getSimpleName.toLowerCase() + "_" + OutputMetrics.getOutputAlias(f.name, f.getConfig()))
     val mySource = new HllStatBatchErrorSource(ssc, outputNames)
     ms.registerSource(mySource)
 
-    val accu_map: util.HashMap[String, LongAccumulator] = mySource.getAllAccu()
+    val accumulators: util.HashMap[String, LongAccumulator] = mySource.getAllAccu()
     //=== ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑ ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
-
     //    basePrepare(sparkSession, staticInputs, streamingInputs, filters, outputs)
-    basePrepareWithMetrics(sparkSession, accu_map, staticInputs, streamingInputs, filters, outputs)
+    basePrepareWithMetrics(sparkSession, accumulators, staticInputs, streamingInputs, filters, outputs)
 
     // when you see this ASCII logo, waterdrop is really started.
     showWaterdropAsciiLogo()
@@ -258,6 +245,7 @@ object Waterdrop extends Logging {
       val ls: ListBuffer[Future[_]] = ListBuffer()
       try outputs.foreach(p => {
         p.setDf(ds)
+
         ls.add(threadPool.submit(p))
       }) catch {
         case ex: Exception => throw ex
@@ -324,13 +312,12 @@ object Waterdrop extends Logging {
   }
 
   private[waterdrop] def basePrepareWithMetrics(sparkSession: SparkSession,
-                                                accu_map: util.HashMap[String, LongAccumulator], plugins: List[Plugin]*): Unit = {
+                                                accumulators: util.HashMap[String, LongAccumulator], plugins: List[Plugin]*): Unit = {
     for (pluginList <- plugins) {
       for (p <- pluginList) {
+        p.prepare(sparkSession)
         if (p.isInstanceOf[Mysql] || p.isInstanceOf[Kafka]) {
-          p.prepareWithMetrics(sparkSession, accu_map)
-        } else {
-          p.prepare(sparkSession)
+          p.setAccuMap(accumulators)
         }
       }
     }
