@@ -33,9 +33,11 @@ class KafkaOutputMetrics extends OutputMetrics
           its => {
             while (its.hasNext) {
               val row = its.next()
-              sum_accumulator.add(1)
               try {
-                kafkaOutput.kafkaSink.get.value.send(kafkaOutput.config.getString("topic"), row.mkString)
+                sum_accumulator.add(1L)
+                kafkaOutput.kafkaSink.get.value
+                  .send(kafkaOutput.config.getString("topic"), row.mkString)
+                //                kafkaOutput.kafkaSink.get.value.send(kafkaOutput.config.getString("topic"), row.mkString)
                 correct_accumulator.add(1L)
               } catch {
                 case ex: Exception =>
@@ -50,11 +52,14 @@ class KafkaOutputMetrics extends OutputMetrics
       case _ => {
         df.toJSON.foreachPartition(
           its => {
-             while (its.hasNext) {
+            while (its.hasNext) {
               val row = its.next()
-              sum_accumulator.add(1)
               try {
-                kafkaOutput.kafkaSink.get.value.send(kafkaOutput.config.getString("topic"), row)
+                sum_accumulator.add(1L)
+                kafkaOutput.kafkaSink.get.value
+                  .send(kafkaOutput.config.getString("topic"), row)
+                //                kafkaOutput.kafkaSink.get.value
+                //                  .sendAndCallback(kafkaOutput.config.getString("topic"), row, correct_accumulator, error_accumulator, sum_accumulator)
                 correct_accumulator.add(1L)
               } catch {
                 case ex: Exception =>

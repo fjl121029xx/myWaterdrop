@@ -65,7 +65,16 @@ class ClickhouseOutputMetrics extends OutputMetrics
           statement.addBatch()
 
           if (length >= bulkSize) {
-            statement.executeBatch()
+            try {
+              val result = statement.executeBatch()
+              result.foreach(i => if (i > 0 || i == -2) correct_accumulator.add(1L) else error_accumulator.add(1L))
+              sum_accumulator.add(result.length * 1L)
+            } catch {
+              case ex: Exception =>
+                error_accumulator.add(length * 1L)
+                sum_accumulator.add(length * 1L)
+            }
+
             length = 0
           }
         }

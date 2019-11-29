@@ -146,7 +146,7 @@ object Waterdrop extends Logging {
     })
 
     val sparkSession = SparkSession.builder.config(sparkConf)
-      //      .enableHiveSupport()
+      .enableHiveSupport()
       .getOrCreate()
 
     // find all user defined UDFs and register in application init

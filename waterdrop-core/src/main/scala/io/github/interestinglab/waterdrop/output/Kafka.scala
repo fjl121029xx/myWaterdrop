@@ -2,12 +2,15 @@ package io.github.interestinglab.waterdrop.output
 
 import java.util
 import java.util.Properties
+import java.net.ConnectException
+import java.util.concurrent.Future
 
 import com.alibaba.fastjson.JSON
 import com.typesafe.config.{Config, ConfigFactory}
 import io.github.interestinglab.waterdrop.apis.BaseOutput
 import io.github.interestinglab.waterdrop.metrics.KafkaOutputMetrics
-import org.apache.kafka.clients.producer.{KafkaProducer, ProducerRecord}
+import org.apache.kafka.clients.producer.{Callback, KafkaProducer, ProducerRecord, RecordMetadata}
+import org.apache.kafka.common.errors.TimeoutException
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.sql.{Dataset, Row, SparkSession}
 import org.apache.spark.util.LongAccumulator
@@ -105,6 +108,23 @@ class KafkaSink(createProducer: () => KafkaProducer[String, String]) extends Ser
 
   def send(topic: String, value: String): Unit =
     producer.send(new ProducerRecord(topic, value))
+
+  def sendAndFuture(topic: String, value: String): Future[RecordMetadata] =
+    producer.send(new ProducerRecord(topic, value))
+
+  def sendAndCallback(topic: String, value: String,
+                      correct_accumulator: LongAccumulator, error_accumulator: LongAccumulator, sum_accumulator: LongAccumulator): Unit =
+    producer.send(new ProducerRecord(topic, value), new Callback {
+      override def onCompletion(metadata: RecordMetadata, exception: Exception): Unit = {
+        sum_accumulator.add(1L)
+        if (exception != null) {
+          error_accumulator.add(1L)
+        } else {
+          correct_accumulator.add(1L)
+        }
+      }
+
+    })
 }
 
 object KafkaSink {

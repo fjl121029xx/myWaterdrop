@@ -4,7 +4,9 @@ import com.typesafe.config.Config
 import org.apache.spark.SparkEnv
 import org.apache.spark.metrics.source2.HllStatBatchErrorSource
 
-class OutputMetrics {
+abstract class OutputMetrics {
+
+  def checkHasAccumulator(): Boolean = false
 
 }
 

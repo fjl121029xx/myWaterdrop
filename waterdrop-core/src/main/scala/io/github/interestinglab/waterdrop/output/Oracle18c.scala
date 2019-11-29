@@ -56,8 +56,17 @@ class Oracle18c extends BaseOutput {
 
     df.foreachPartition(rowIterator => {
       val conn = getConnection(bc_url.value, bc_user.value, bc_password.value)
-      val ps = conn.prepareStatement(bc_insert_sql.value)
-      iterProcess(rowIterator, bc_columns.value.toArray, ps)
+      try {
+        conn.setAutoClose(false)
+        val ps = conn.prepareStatement(bc_insert_sql.value)
+        iterProcess(rowIterator, bc_columns.value.toArray, ps)
+        conn.commit()
+      } catch {
+        case e: Exception =>
+          conn.rollback()
+          e.printStackTrace()
+      }
+      conn.close()
 
     })
   }
@@ -114,7 +123,8 @@ class Oracle18c extends BaseOutput {
 
     val ods = new OracleDataSource {
       {
-        setURL(oracleurl)
+        //        setURL(oracleurl)
+        setURL("jdbc:oracle:thin:@douyuedb_high?TNS_ADMIN=D:\\oracle\\wallet_DOUYUEDB")
         setConnectionProperties(info)
       }
     }

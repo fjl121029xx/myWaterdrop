@@ -118,7 +118,7 @@ class Jdbc extends BaseStaticInput {
           .reduce(_ union _)
 
       case "sql" =>
-        val sql = "(" + config.getString("query.sql") + ") t"
+          val sql = "(" + config.getString("query.sql") + ") t"
         reader.jdbc(url, sql, properties)
     }
   }

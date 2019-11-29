@@ -32,7 +32,7 @@ IF : 'if';
 ELSE : 'else';
 
 AND        : 'AND' ;
-OR         : 'OR' ;
+OR         : 'io.github.interestinglab.waterdrop.OR' ;
 NOT        : 'NOT';
 TRUE       : 'true' ;
 FALSE      : 'false' ;
