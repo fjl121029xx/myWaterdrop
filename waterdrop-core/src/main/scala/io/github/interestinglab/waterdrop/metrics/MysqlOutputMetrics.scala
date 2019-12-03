@@ -43,6 +43,9 @@ class MysqlOutputMetrics extends OutputMetrics
     this.sum_accumulator = mysqlOutput.accumulators.get("mysql_" + table + "_sum_accu")
   }
 
+  override def checkHasAccumulator(): Boolean = {
+    correct_accumulator != null && error_accumulator != null && sum_accumulator != null
+  }
 
   def iterProcess(): Int = {
 

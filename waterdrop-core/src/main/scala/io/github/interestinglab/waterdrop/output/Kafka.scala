@@ -84,21 +84,22 @@ class Kafka extends BaseOutput {
   override def process(df: Dataset[Row]) {
 
     val kafkaMetrics = new KafkaOutputMetrics(this)
-    kafkaMetrics.process(df)
-    //    config.getString("serializer") match {
-    //      case "text" => {
-    //        df.foreach { row =>
-    //
-    //          kafkaSink.get.value.send(config.getString("topic"), row.mkString)
-    //        }
-    //      }
-    //      case _ => {
-    //        df.toJSON.foreach(row => {
-    //          kafkaSink.get.value.send(config.getString("topic"), row)
-    //        })
-    //      }
-    //    }
-
+    if (kafkaMetrics.checkHasAccumulator()) {
+      kafkaMetrics.process(df)
+    } else {
+      config.getString("serializer") match {
+        case "text" => {
+          df.foreach { row =>
+            kafkaSink.get.value.send(config.getString("topic"), row.mkString)
+          }
+        }
+        case _ => {
+          df.toJSON.foreach(row => {
+            kafkaSink.get.value.send(config.getString("topic"), row)
+          })
+        }
+      }
+    }
   }
 }
 

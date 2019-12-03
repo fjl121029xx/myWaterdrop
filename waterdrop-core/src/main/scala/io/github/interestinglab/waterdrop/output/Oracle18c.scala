@@ -1,6 +1,6 @@
 package io.github.interestinglab.waterdrop.output
 
-import java.sql.{PreparedStatement, Types}
+import java.sql.{DatabaseMetaData, PreparedStatement, Types}
 import java.util.Properties
 
 import com.typesafe.config.{Config, ConfigFactory}
@@ -57,14 +57,21 @@ class Oracle18c extends BaseOutput {
     df.foreachPartition(rowIterator => {
       val conn = getConnection(bc_url.value, bc_user.value, bc_password.value)
       try {
-        conn.setAutoClose(false)
+        conn.setAutoCommit(false)
+        val dbmd = conn.getMetaData
+        System.out.println("Driver Name: " + dbmd.getDriverName)
+        System.out.println("Driver Version: " + dbmd.getDriverVersion)
+        System.out.println("Default Row Prefetch Value is: " + conn.getDefaultRowPrefetch)
+        System.out.println("Database Username is: " + conn.getUserName)
+        System.out.println()
+//        conn.setAutoClose(false)
         val ps = conn.prepareStatement(bc_insert_sql.value)
         iterProcess(rowIterator, bc_columns.value.toArray, ps)
         conn.commit()
       } catch {
         case e: Exception =>
-          conn.rollback()
           e.printStackTrace()
+          conn.rollback()
       }
       conn.close()
 

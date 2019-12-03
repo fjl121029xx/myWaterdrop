@@ -157,15 +157,16 @@ class Mysql extends BaseOutput {
 
       dfFill.where("actionType=\"DELETE\"").foreachPartition(it => {
 
-        val conn = DriverManager.getConnection(urlBroad.value, MysqlWraper.getJdbcConf(userBroad.value, passwdBroad.value))
+        val conn = MysqlRetryer.getConnByRetryer(urlBroad.value, userBroad.value, passwdBroad.value).get
+        //        val conn = DriverManager.getConnection(urlBroad.value, MysqlWraper.getJdbcConf(userBroad.value, passwdBroad.value))
         val ps = conn.prepareStatement(delSqlBroad.value)
-        val map = Map(
+        val retryConf = Map(
           "url" -> urlBroad.value,
           "user" -> userBroad.value,
           "passwd" -> passwdBroad.value,
           "sql" -> delSqlBroad.value
         )
-        iterProcess(it, Array(primaryKeyBroad.value), ps, map)
+        iterProcess(it, Array(primaryKeyBroad.value), ps, retryConf)
 
         retryer.execute(ps.close())
         retryer.execute(conn.close())
@@ -196,17 +197,20 @@ class Mysql extends BaseOutput {
       //      val conn = DriverManager.getConnection(urlBroad.value, MysqlWraper.getJdbcConf(userBroad.value, passwdBroad.value))
       val ps = conn.prepareStatement(sqlBroad.value)
 
-      val retryMap = Map(
+      val retryConf = Map(
         "url" -> urlBroad.value,
         "user" -> userBroad.value,
         "passwd" -> passwdBroad.value,
         "sql" -> sqlBroad.value
       )
-
-      insertAcc.add(iterProcess(it, fields, ps, retryMap))
       //
-      //      val mysqlMetrics = new MysqlOutputMetrics(it, fields, ps, retryMap, ms = this)
-      //      insertAcc.add(mysqlMetrics.iterProcess())
+      val mysqlMetrics = new MysqlOutputMetrics(it, fields, ps, retryConf, ms = this)
+      if (mysqlMetrics.checkHasAccumulator()) {
+        insertAcc.add(mysqlMetrics.iterProcess())
+      } else {
+        insertAcc.add(iterProcess(it, fields, ps, retryConf))
+      }
+
 
       retryer.execute(ps.close())
       retryer.execute(conn.close())
@@ -253,7 +257,6 @@ class Mysql extends BaseOutput {
     }
   }
 
-
   private def tableSql(df: Dataset[Row]): Dataset[Row] = {
 
     config.hasPath("table_sql") match {
@@ -265,7 +268,8 @@ class Mysql extends BaseOutput {
   /**
    * mysql 超时重试
    */
-  private def iterProcess(it: Iterator[Row], cols: Array[String], ps: PreparedStatement, retryConf: Map[String, String]): Int = {
+  private def iterProcess(it: Iterator[Row], cols: Array[String], ps: PreparedStatement,
+                          retryConf: Map[String, String]): Int = {
 
     var i = 0
     var sum = 0

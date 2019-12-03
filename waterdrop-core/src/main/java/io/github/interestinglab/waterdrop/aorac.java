@@ -6,7 +6,7 @@ import oracle.jdbc.pool.OracleDataSource;
 import java.sql.*;
 import java.util.Properties;
 
-public class OR {
+public class aorac {
 
     // final static String DB_URL = "jdbc:oracle:thin:@myhost:1521/myorcldbservicename";
 //     final static String DB_URL="jdbc:oracle:thin:@wallet_dbname?TNS_ADMIN=/Users/test/wallet_dbname";

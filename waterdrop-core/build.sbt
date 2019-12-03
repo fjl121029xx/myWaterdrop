@@ -4,9 +4,7 @@ organization := "io.github.interestinglab.waterdrop"
 
 scalaVersion := "2.11.8"
 
-
 val sparkVersion = "2.3.1"
-
 lazy val providedDependencies = Seq(
   "org.apache.spark" %% "spark-core" % sparkVersion,
   "org.apache.spark" %% "spark-sql" % sparkVersion,
@@ -48,6 +46,8 @@ libraryDependencies ++= Seq(
   "org.apache.spark" %% "spark-sql-kafka-0-10" % sparkVersion,
   "junit" % "junit" % "4.12" % "test",
   "com.hualala.spark" % "streaming-metrics" % "17.4.1-SNAPSHOT"
+  //  , "com.oracle.jdbc" % "ojdbc8" % "12.2.0.1",
+  //  "com.oracle.jdbc" % "ucp" % "12.2.0.1"
 )
 
 // For binary compatible conflicts, sbt provides dependency overrides.
@@ -82,6 +82,11 @@ publishTo := Some(
   } else {
     Opts.resolver.sonatypeStaging
   }
+)
+
+unmanagedJars in Compile ++= Seq(
+  Attributed.blank[File](file("D:\\oracle\\ojdbc8-full\\ojdbc8-full\\ojdbc8.jar")),
+  Attributed.blank[File](file("D:\\oracle\\ojdbc8-full\\ojdbc8-full\\ucp.jar"))
 )
 
 assemblyMergeStrategy in assembly := {
