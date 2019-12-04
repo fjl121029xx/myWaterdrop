@@ -8,6 +8,8 @@ import java.util.Properties;
 
 public class aorac {
 
+
+    
     // final static String DB_URL = "jdbc:oracle:thin:@myhost:1521/myorcldbservicename";
 //     final static String DB_URL="jdbc:oracle:thin:@wallet_dbname?TNS_ADMIN=/Users/test/wallet_dbname";
 

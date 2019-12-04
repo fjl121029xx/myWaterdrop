@@ -138,8 +138,8 @@ object Waterdrop extends Logging {
     println("[INFO] loading SparkConf: ")
     val sparkConf = createSparkConf(configBuilder)
     //=== 本地测试用
-    sparkConf.setIfMissing("spark.master", "local") //↓
-    sparkConf.setIfMissing("spark.app.name", "Waterdrop-local") //↑
+//    sparkConf.setIfMissing("spark.master", "local") //↓
+//    sparkConf.setIfMissing("spark.app.name", "Waterdrop-local") //↑
 
     sparkConf.getAll.foreach(entry => {
       val (key, value) = entry
@@ -190,8 +190,8 @@ object Waterdrop extends Logging {
     //=== 注册metrics
     val accumulators: util.HashMap[String, LongAccumulator] = OutputMetrics.registeMetrics(ssc, outputs)
     logInfo("had registered accumulators" + accumulators)
-    //    basePrepare(sparkSession, staticInputs, streamingInputs, filters, outputs)
     //=== output 配置 metrics
+    //    basePrepare(sparkSession, staticInputs, streamingInputs, filters, outputs)
     OutputMetrics.basePrepareWithMetrics(sparkSession, accumulators, staticInputs, streamingInputs, filters, outputs)
 
     // when you see this ASCII logo, waterdrop is really started.

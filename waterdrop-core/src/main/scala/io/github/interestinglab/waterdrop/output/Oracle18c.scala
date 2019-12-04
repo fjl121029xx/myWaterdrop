@@ -12,7 +12,7 @@ import org.apache.spark.sql.{Dataset, Row, SparkSession}
 
 import scala.collection.mutable.ListBuffer
 import scala.collection.JavaConversions._
-
+//https://www.oracle.com/database/technologies/develop-java-apps-using-jdbc.html
 class Oracle18c extends BaseOutput {
 
   val config_param: Seq[String] = Seq("url", "user", "password", "table")
@@ -64,7 +64,7 @@ class Oracle18c extends BaseOutput {
         System.out.println("Default Row Prefetch Value is: " + conn.getDefaultRowPrefetch)
         System.out.println("Database Username is: " + conn.getUserName)
         System.out.println()
-//        conn.setAutoClose(false)
+        //        conn.setAutoClose(false)
         val ps = conn.prepareStatement(bc_insert_sql.value)
         iterProcess(rowIterator, bc_columns.value.toArray, ps)
         conn.commit()
@@ -130,8 +130,8 @@ class Oracle18c extends BaseOutput {
 
     val ods = new OracleDataSource {
       {
-        //        setURL(oracleurl)
-        setURL("jdbc:oracle:thin:@douyuedb_high?TNS_ADMIN=D:\\oracle\\wallet_DOUYUEDB")
+        setURL(oracleurl)
+        //        setURL("jdbc:oracle:thin:@douyuedb_high?TNS_ADMIN=D:\\oracle\\wallet_DOUYUEDB")
         setConnectionProperties(info)
       }
     }

@@ -13,7 +13,7 @@ lazy val providedDependencies = Seq(
 )
 
 // Change dependepcy scope to "provided" by : sbt -DprovidedDeps=true <task>
-val providedDeps = Option(System.getProperty("providedDeps")).getOrElse("false")
+val providedDeps = Option(System.getProperty("providedDeps")).getOrElse("true")
 //val providedDeps = "true"
 //println("providedDeps = true")
 
