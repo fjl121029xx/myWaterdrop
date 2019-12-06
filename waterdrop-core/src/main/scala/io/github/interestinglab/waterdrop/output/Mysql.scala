@@ -203,13 +203,15 @@ class Mysql extends BaseOutput {
         "passwd" -> passwdBroad.value,
         "sql" -> sqlBroad.value
       )
+
+      insertAcc.add(iterProcess(it, fields, ps, retryConf))
       //
-      val mysqlMetrics = new MysqlOutputMetrics(it, fields, ps, retryConf, ms = this)
-      if (mysqlMetrics.checkHasAccumulator()) {
-        insertAcc.add(mysqlMetrics.iterProcess())
-      } else {
-        insertAcc.add(iterProcess(it, fields, ps, retryConf))
-      }
+      //      val mysqlMetrics = new MysqlOutputMetrics(it, fields, ps, retryConf, ms = this)
+      //      if (mysqlMetrics.checkHasAccumulator()) {
+      //        insertAcc.add(mysqlMetrics.iterProcess())
+      //      } else {
+      //        insertAcc.add(iterProcess(it, fields, ps, retryConf))
+      //      }
 
 
       retryer.execute(ps.close())
@@ -303,10 +305,16 @@ class Mysql extends BaseOutput {
                 case e: Exception =>
                   e.printStackTrace()
                   lb.foreach(println)
+                  throw e
               }
+            }
+            else {
+              lb.foreach(println)
+              throw ex
             }
           }
           case e: BatchUpdateException => {
+            lb.foreach(println)
             e.printStackTrace()
           }
         }

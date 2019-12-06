@@ -65,6 +65,7 @@ class MysqlRetryer(mysqlmap: Map[String, String],
           retryCount += 1
           if (retryCount > MAX_RETRY_COUNT) {
             lb.foreach(println)
+            throw e
           }
           Thread.sleep(5000)
       }

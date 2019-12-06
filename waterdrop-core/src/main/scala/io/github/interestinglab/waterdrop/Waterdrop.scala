@@ -138,8 +138,8 @@ object Waterdrop extends Logging {
     println("[INFO] loading SparkConf: ")
     val sparkConf = createSparkConf(configBuilder)
     //=== 本地测试用
-//    sparkConf.setIfMissing("spark.master", "local") //↓
-//    sparkConf.setIfMissing("spark.app.name", "Waterdrop-local") //↑
+    sparkConf.setIfMissing("spark.master", "local[3]") //↓
+    sparkConf.setIfMissing("spark.app.name", "Waterdrop-local") //↑
 
     sparkConf.getAll.foreach(entry => {
       val (key, value) = entry
